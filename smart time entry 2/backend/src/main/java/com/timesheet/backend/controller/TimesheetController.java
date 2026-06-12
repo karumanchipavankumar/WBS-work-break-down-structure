@@ -112,9 +112,34 @@ public class TimesheetController {
         // Determine if it is a submission or resubmission
         String oldStatus = null;
         if (entry.getId() != null) {
-            java.util.Optional<TimesheetEntry> existing = timesheetRepo.findById(entry.getId());
-            if (existing.isPresent()) {
-                oldStatus = existing.get().getStatus();
+            java.util.Optional<TimesheetEntry> existingOpt = timesheetRepo.findById(entry.getId());
+            if (existingOpt.isPresent()) {
+                TimesheetEntry oldEntry = existingOpt.get();
+                oldStatus = oldEntry.getStatus();
+                
+                String oldOtStatus = oldEntry.getOtStatus();
+                boolean isOldPending = (oldStatus != null && oldStatus.toLowerCase().contains("pending")) ||
+                                       (oldOtStatus != null && oldOtStatus.toLowerCase().contains("pending")) ||
+                                       "Filed".equalsIgnoreCase(oldOtStatus) ||
+                                       "Refilled".equalsIgnoreCase(oldOtStatus);
+                if (isOldPending) {
+                    // Check if any read-only data fields were modified
+                    boolean isDataModified = 
+                        !safeCompare(oldEntry.getType(), entry.getType()) ||
+                        !safeCompare(oldEntry.getAmIn(), entry.getAmIn()) ||
+                        !safeCompare(oldEntry.getAmOut(), entry.getAmOut()) ||
+                        !safeCompare(oldEntry.getLunchOut(), entry.getLunchOut()) ||
+                        !safeCompare(oldEntry.getLunchIn(), entry.getLunchIn()) ||
+                        !safeCompare(oldEntry.getPmIn(), entry.getPmIn()) ||
+                        !safeCompare(oldEntry.getPmOut(), entry.getPmOut()) ||
+                        !safeCompare(oldEntry.getOtReason(), entry.getOtReason()) ||
+                        !safeCompare(oldEntry.getOtRemarks(), entry.getOtRemarks()) ||
+                        !safeCompare(oldEntry.getClientApproved(), entry.getClientApproved()) ||
+                        !safeCompare(oldEntry.getClientApprovalFile(), entry.getClientApprovalFile());
+                    if (isDataModified) {
+                        return ResponseEntity.badRequest().body("This timesheet entry is currently under review and cannot be modified.");
+                    }
+                }
             }
         }
         
@@ -186,5 +211,15 @@ public class TimesheetController {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private boolean safeCompare(Object a, Object b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) {
+            if (a instanceof String && ((String) a).isEmpty() && b == null) return true;
+            if (b instanceof String && ((String) b).isEmpty() && a == null) return true;
+            return false;
+        }
+        return a.equals(b);
     }
 }

@@ -78,6 +78,9 @@ public class User {
     @Column(name = "password_changed_at")
     private LocalDateTime passwordChangedAt;
 
+    @Column(name = "password_history", columnDefinition = "TEXT")
+    private String passwordHistory;
+
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

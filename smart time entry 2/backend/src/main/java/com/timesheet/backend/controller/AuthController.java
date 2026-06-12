@@ -303,6 +303,10 @@ public class AuthController {
         }
 
         // Success! Reset password
+        if (isPasswordReused(user, newPassword)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "You cannot reuse any of your last 3 passwords."));
+        }
+        updatePasswordHistory(user);
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setResetCode(null);
         user.setResetCodeExpiry(null);
@@ -350,6 +354,10 @@ public class AuthController {
         if (userOpt.isPresent()) {
             User user = userOpt.get();
             if (passwordEncoder.matches(oldPassword, user.getPassword())) {
+                if (isPasswordReused(user, newPassword)) {
+                    return ResponseEntity.badRequest().body(Map.of("message", "You cannot reuse any of your last 3 passwords."));
+                }
+                updatePasswordHistory(user);
                 user.setPassword(passwordEncoder.encode(newPassword));
                 user.setOneTimeResetToken(null); // SINGLE-USE! Clear the token immediately!
                 // Invalidate all active sessions issued with the old/temporary password
@@ -360,5 +368,64 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("message", "Incorrect old/temporary password."));
         }
         return ResponseEntity.badRequest().body(Map.of("message", "Invalid, expired, or already used link."));
+    }
+
+    private boolean isPasswordReused(User user, String newPassword) {
+        // 1. Check current password
+        if (user.getPassword() != null && passwordEncoder.matches(newPassword, user.getPassword())) {
+            return true;
+        }
+
+        // 2. Check history (last 2 previous passwords)
+        String history = user.getPasswordHistory();
+        if (history != null && !history.trim().isEmpty()) {
+            String[] hashes = history.split(";");
+            int count = 0;
+            for (String hash : hashes) {
+                if (hash != null && !hash.trim().isEmpty()) {
+                    if (passwordEncoder.matches(newPassword, hash.trim())) {
+                        return true;
+                    }
+                    count++;
+                    if (count >= 2) {
+                        break; // Checked current + 2 history = 3 passwords total
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void updatePasswordHistory(User user) {
+        String currentPasswordHash = user.getPassword();
+        if (currentPasswordHash == null || currentPasswordHash.trim().isEmpty()) {
+            return;
+        }
+
+        String history = user.getPasswordHistory();
+        if (history == null) {
+            history = "";
+        }
+        history = history.trim();
+
+        java.util.List<String> list = new java.util.ArrayList<>();
+        list.add(currentPasswordHash);
+
+        if (!history.isEmpty()) {
+            String[] hashes = history.split(";");
+            for (String hash : hashes) {
+                if (hash != null && !hash.trim().isEmpty()) {
+                    list.add(hash.trim());
+                }
+            }
+        }
+
+        // Store up to 3 in history (since we need to check current + last 2, storing 3 is safe and provides a buffer)
+        if (list.size() > 3) {
+            list = list.subList(0, 3);
+        }
+
+        String newHistory = String.join(";", list);
+        user.setPasswordHistory(newHistory);
     }
 }

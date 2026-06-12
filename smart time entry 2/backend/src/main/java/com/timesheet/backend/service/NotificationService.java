@@ -95,11 +95,7 @@ public class NotificationService {
     }
 
     public void markAllAsRead(String empId) {
-        List<Notification> unread = notificationRepository.findByRecipientEmpIdAndIsRead(empId, false);
-        for (Notification n : unread) {
-            n.setRead(true);
-        }
-        notificationRepository.saveAll(unread);
+        notificationRepository.markAllAsReadByRecipientEmpId(empId);
     }
 
     // Weekly Reminders: Friday at 4:00 PM

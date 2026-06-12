@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -19,9 +22,18 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     
     List<Notification> findByRecipientEmpIdAndIsRead(String recipientEmpId, boolean isRead);
     
-    void deleteByCreatedAtBefore(Instant cutoff);
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM Notification n WHERE n.createdAt < :cutoff")
+    void deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 
     @Modifying
     @Transactional
-    void deleteByRecipientEmpId(String recipientEmpId);
+    @Query("DELETE FROM Notification n WHERE n.recipientEmpId = :recipientEmpId")
+    void deleteByRecipientEmpId(@Param("recipientEmpId") String recipientEmpId);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE Notification n SET n.isRead = true WHERE n.recipientEmpId = :recipientEmpId AND n.isRead = false")
+    void markAllAsReadByRecipientEmpId(@Param("recipientEmpId") String recipientEmpId);
 }
