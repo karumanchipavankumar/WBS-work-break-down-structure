@@ -29,14 +29,6 @@ api.interceptors.response.use(
           (typeof responseData === 'object' && responseData?.error === 'SESSION_INVALIDATED') ||
           (typeof responseData === 'string' && responseData.includes('SESSION_INVALIDATED'));
 
-        if (isSessionInvalidated) {
-          // Store a message so the login page can display it prominently
-          sessionStorage.setItem(
-            'auth_message',
-            'Your password has been changed. Please log in again using your new credentials.'
-          );
-        }
-
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('user');
         localStorage.removeItem('token');
@@ -45,7 +37,18 @@ api.interceptors.response.use(
         localStorage.removeItem('empId');
         localStorage.removeItem('selectedEmployee');
         localStorage.removeItem('admin_selected_employee');
-        window.location.href = '/';
+
+        if (isSessionInvalidated) {
+          // Store a message so the login page can display it prominently
+          sessionStorage.setItem(
+            'auth_message',
+            'Your password has been changed. Please log in again using your new credentials.'
+          );
+          window.location.href = '/';
+        } else {
+          // Dispatch a custom session-expired event so React can show the warning popup
+          window.dispatchEvent(new CustomEvent('session-expired'));
+        }
       }
     }
     return Promise.reject(error);

@@ -238,9 +238,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [statusComments, setStatusComments] = useState('');
   const [isStatusProcessing, setIsStatusProcessing] = useState(false);
   const [statusError, setStatusError] = useState('');
+  const [statusReasonError, setStatusReasonError] = useState(false);
+  const [statusCommentsError, setStatusCommentsError] = useState(false);
   const [statusSuccessMessage, setStatusSuccessMessage] = useState('');
   const [selectedLogForView, setSelectedLogForView] = useState(null);
   const [auditLogMonthFilter, setAuditLogMonthFilter] = useState(() => getTodayDateString().substring(0, 7));
+
 
   // Deletion Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -299,17 +302,45 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     setStatusReason('');
     setStatusComments('');
     setStatusError('');
+    setStatusReasonError(false);
+    setStatusCommentsError(false);
     setIsStatusModalOpen(true);
   };
 
   const handleStatusSubmit = async () => {
     if (!selectedEmpForStatus || !statusAction) return;
+    
+    let hasError = false;
+    let reasonErr = false;
+    let commentsErr = false;
+    let errorMsg = '';
+
     if (!statusReason) {
-      await showAlert(`Please select a reason for ${statusAction === 'disable' ? 'disabling' : 'enabling'} the account.`, { title: 'Reason Required', type: 'warn' });
-      return;
+      reasonErr = true;
+      hasError = true;
+      errorMsg = `Please select a reason for ${statusAction === 'disable' ? 'disabling' : 'enabling'} the account.`;
+    } else if (statusReason === 'Other' && !statusComments.trim()) {
+      commentsErr = true;
+      hasError = true;
+      errorMsg = "Comments are required when 'Other' reason is selected.";
     }
-    if (statusReason === 'Other' && !statusComments.trim()) {
-      await showAlert("Comments are required when 'Other' reason is selected.", { title: 'Comments Required', type: 'warn' });
+
+    setStatusReasonError(reasonErr);
+    setStatusCommentsError(commentsErr);
+
+    if (hasError) {
+      setStatusError(errorMsg);
+      if (reasonErr) {
+        setTimeout(() => {
+          const el = document.getElementById("status-reason");
+          if (el) el.focus();
+        }, 50);
+      } else if (commentsErr) {
+        setTimeout(() => {
+          const el = document.getElementById("status-comments");
+          if (el) el.focus();
+        }, 50);
+      }
       return;
     }
 
@@ -523,8 +554,25 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       errors.contactNumber = contactDuplicateError;
     }
 
+    const focusFirstError = (errs) => {
+      const fieldsOrder = ['name', 'empId', 'dept', 'manager', 'emailUsername', 'emailDomain', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber'];
+      for (const field of fieldsOrder) {
+        if (errs[field]) {
+          setTimeout(() => {
+            const el = document.getElementById(field) || document.querySelector(`[name="${field}"]`);
+            if (el) el.focus();
+          }, 50);
+          break;
+        }
+      }
+    };
+
     setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors);
+      return false;
+    }
+    return true;
   };
 
   const checkPrecedingFields = (currentField) => {
@@ -566,12 +614,20 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     const isEmailUnique = await checkEmailUniqueness(combinedEmail);
     if (!isEmailUnique) {
       setFormErrors(prev => ({ ...prev, emailUsername: 'This email address is already registered' }));
+      setTimeout(() => {
+        const el = document.getElementById('emailUsername');
+        if (el) el.focus();
+      }, 50);
       return;
     }
 
     // Final duplicate contact number check on submission
     const isContactUnique = await checkContactUniqueness(newEmp.contactNumber);
     if (!isContactUnique) {
+      setTimeout(() => {
+        const el = document.getElementById('contactNumber');
+        if (el) el.focus();
+      }, 50);
       return;
     }
 
@@ -776,7 +832,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
             <div className="page-subtitle">Manage employees and view timesheets</div>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="btn btn-ghost btn-md" onClick={exportEmployeesToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button 
+              className="btn btn-ghost btn-md" 
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.5, cursor: 'not-allowed' }}
+              disabled={true}
+              title="Exporting employee list is disabled on the home page."
+            >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
@@ -1014,7 +1075,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               </div>
             )}
             <div className="modal-sub">Fill in the employee details below.</div>
-            <div className="add-emp-form">
+            <form onSubmit={e => { e.preventDefault(); handleAddEmployee(); }} className="add-emp-form">
               <div className="modal-row">
                 <div className="form-group">
                   <label className="form-label">FULL NAME <span style={{ color: '#e11d48' }}>*</span></label>
@@ -1413,12 +1474,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               </div>
 
               <div className="modal-actions">
-                <button className="btn-cancel" style={{ flex: 1 }} onClick={handleCloseModal} disabled={isSubmitting}>Cancel</button>
-                <button className="btn-submit-modal" style={{ flex: 1, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? 'not-allowed' : 'pointer' }} onClick={handleAddEmployee} disabled={isSubmitting}>
+                <button type="button" className="btn-cancel" style={{ flex: 1 }} onClick={handleCloseModal} disabled={isSubmitting}>Cancel</button>
+                <button type="submit" className="btn-submit-modal" style={{ flex: 1, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? 'not-allowed' : 'pointer' }} disabled={isSubmitting}>
                   {isSubmitting ? 'Adding...' : 'Add Employee'}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
@@ -1438,102 +1499,113 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
           <div className="modal" style={{ width: '400px', maxWidth: '90vw', padding: '24px' }}>
             <div className="modal-header">
               <h3>{statusAction === 'disable' ? 'Disable Account' : 'Enable Account'}</h3>
-              <button className="modal-close" onClick={() => { if (!isStatusProcessing) { setIsStatusModalOpen(false); setSelectedEmpForStatus(null); } }} disabled={isStatusProcessing}>×</button>
+              <button className="modal-close" type="button" onClick={() => { if (!isStatusProcessing) { setIsStatusModalOpen(false); setSelectedEmpForStatus(null); } }} disabled={isStatusProcessing}>×</button>
             </div>
             <div className="modal-sub" style={{ marginBottom: '16px' }}>
               Select a reason for {statusAction === 'disable' ? 'deactivating' : 'reactivating'} <strong>{selectedEmpForStatus.name}</strong>'s account. This will {statusAction === 'disable' ? 'block' : 'restore'} their login access.
             </div>
 
-            {statusError && (
-              <div style={{
-                padding: '10px',
-                marginBottom: '15px',
-                borderRadius: '6px',
-                backgroundColor: '#ffebee',
-                color: '#c62828',
-                fontSize: '12px',
-                border: '1px solid #ef9a9a',
-                fontWeight: '500'
-              }}>
-                {statusError}
-              </div>
-            )}
-
-            <div className="form-group" style={{ marginBottom: '14px' }}>
-              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold' }}>{statusAction === 'disable' ? 'Deactivation Reason' : 'Reactivation Reason'} <span style={{ color: '#e11d48' }}>*</span></label>
-              <select
-                className="form-input"
-                style={{ marginBottom: '0px', cursor: isStatusProcessing ? 'not-allowed' : 'default' }}
-                value={statusReason}
-                disabled={isStatusProcessing}
-                onChange={(e) => setStatusReason(e.target.value)}
-              >
-                <option value="">Select Predefined Reason...</option>
-                {statusAction === 'disable' ? (
-                  <>
-                    <option value="Employee Resigned">Employee Resigned</option>
-                    <option value="Employee Terminated">Employee Terminated</option>
-                    <option value="Long-Term Leave">Long-Term Leave</option>
-                    <option value="Duplicate Account">Duplicate Account</option>
-                    <option value="Security Concern">Security Concern</option>
-                    <option value="Temporary Deactivation">Temporary Deactivation</option>
-                    <option value="Other">Other (custom comment required)</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="Employee Re-joined">Employee Re-joined</option>
-                    <option value="Return from Leave">Return from Leave</option>
-                    <option value="Security Issue Resolved">Security Issue Resolved</option>
-                    <option value="Corrected Mistake">Corrected Mistake</option>
-                    <option value="Temporary Reactivation">Temporary Reactivation</option>
-                    <option value="Other">Other (custom comment required)</option>
-                  </>
-                )}
-              </select>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold' }}>
-                Comments/Remarks {statusReason === 'Other' && <span style={{ color: '#e11d48' }}>*</span>}
-              </label>
-              <textarea
-                className="form-input"
-                style={{ resize: 'vertical', minHeight: '80px', marginBottom: '0px', width: '100%', cursor: isStatusProcessing ? 'not-allowed' : 'text' }}
-                placeholder={statusReason === 'Other' ? "Provide mandatory comment detail..." : "Add optional comments..."}
-                value={statusComments}
-                disabled={isStatusProcessing}
-                onChange={(e) => setStatusComments(e.target.value)}
-              />
-              {statusReason === 'Other' && !statusComments.trim() && (
-                <span style={{ color: '#d32f2f', fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                  Comments are required when 'Other' reason is selected.
-                </span>
+            <form onSubmit={e => { e.preventDefault(); handleStatusSubmit(); }}>
+              {statusError && (
+                <div style={{
+                  padding: '10px',
+                  marginBottom: '15px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ffebee',
+                  color: '#c62828',
+                  fontSize: '12px',
+                  border: '1px solid #ef9a9a',
+                  fontWeight: '500'
+                }}>
+                  {statusError}
+                </div>
               )}
-            </div>
 
-            <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
-              <button
-                className="btn-cancel"
-                style={{ flex: 1, cursor: isStatusProcessing ? 'not-allowed' : 'pointer' }}
-                onClick={() => { setIsStatusModalOpen(false); setSelectedEmpForStatus(null); }}
-                disabled={isStatusProcessing}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-submit-modal"
-                style={{
-                  flex: 1,
-                  backgroundColor: statusAction === 'disable' ? '#e28743' : 'var(--teal)',
-                  opacity: (isStatusProcessing || !statusReason || (statusReason === 'Other' && !statusComments.trim())) ? 0.6 : 1,
-                  cursor: (isStatusProcessing || !statusReason || (statusReason === 'Other' && !statusComments.trim())) ? 'not-allowed' : 'pointer'
-                }}
-                onClick={handleStatusSubmit}
-                disabled={isStatusProcessing || !statusReason || (statusReason === 'Other' && !statusComments.trim())}
-              >
-                {isStatusProcessing ? (statusAction === 'disable' ? 'Disabling...' : 'Enabling...') : (statusAction === 'disable' ? 'Disable Account' : 'Enable Account')}
-              </button>
-            </div>
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold' }}>{statusAction === 'disable' ? 'Deactivation Reason' : 'Reactivation Reason'} <span style={{ color: '#e11d48' }}>*</span></label>
+                <select
+                  id="status-reason"
+                  className={`form-input ${statusReasonError ? 'invalid' : ''}`}
+                  style={{ marginBottom: '0px', cursor: isStatusProcessing ? 'not-allowed' : 'default' }}
+                  value={statusReason}
+                  disabled={isStatusProcessing}
+                  onChange={(e) => {
+                    setStatusReason(e.target.value);
+                    if (e.target.value) setStatusReasonError(false);
+                  }}
+                >
+                  <option value="">Select Predefined Reason...</option>
+                  {statusAction === 'disable' ? (
+                    <>
+                      <option value="Employee Resigned">Employee Resigned</option>
+                      <option value="Employee Terminated">Employee Terminated</option>
+                      <option value="Long-Term Leave">Long-Term Leave</option>
+                      <option value="Duplicate Account">Duplicate Account</option>
+                      <option value="Security Concern">Security Concern</option>
+                      <option value="Temporary Deactivation">Temporary Deactivation</option>
+                      <option value="Other">Other (custom comment required)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Employee Re-joined">Employee Re-joined</option>
+                      <option value="Return from Leave">Return from Leave</option>
+                      <option value="Security Issue Resolved">Security Issue Resolved</option>
+                      <option value="Corrected Mistake">Corrected Mistake</option>
+                      <option value="Temporary Reactivation">Temporary Reactivation</option>
+                      <option value="Other">Other (custom comment required)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '18px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold' }}>
+                  Comments/Remarks {statusReason === 'Other' && <span style={{ color: '#e11d48' }}>*</span>}
+                </label>
+                <textarea
+                  id="status-comments"
+                  className={`form-input ${statusCommentsError ? 'invalid' : ''}`}
+                  style={{ resize: 'vertical', minHeight: '80px', marginBottom: '0px', width: '100%', cursor: isStatusProcessing ? 'not-allowed' : 'text' }}
+                  placeholder={statusReason === 'Other' ? "Provide mandatory comment detail..." : "Add optional comments..."}
+                  value={statusComments}
+                  disabled={isStatusProcessing}
+                  onChange={(e) => {
+                    setStatusComments(e.target.value);
+                    if (e.target.value.trim()) setStatusCommentsError(false);
+                  }}
+                />
+                {statusReason === 'Other' && !statusComments.trim() && (
+                  <span style={{ color: '#d32f2f', fontSize: '11px', marginTop: '4px', display: 'block' }}>
+                    Comments are required when 'Other' reason is selected.
+                  </span>
+                )}
+              </div>
+
+              <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  style={{ flex: 1, cursor: isStatusProcessing ? 'not-allowed' : 'pointer' }}
+                  onClick={() => { setIsStatusModalOpen(false); setSelectedEmpForStatus(null); }}
+                  disabled={isStatusProcessing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit-modal"
+                  style={{
+                    flex: 1,
+                    backgroundColor: statusAction === 'disable' ? '#e28743' : 'var(--teal)',
+                    opacity: isStatusProcessing ? 0.6 : 1,
+                    cursor: isStatusProcessing ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={isStatusProcessing}
+                >
+                  {isStatusProcessing ? (statusAction === 'disable' ? 'Disabling...' : 'Enabling...') : (statusAction === 'disable' ? 'Disable Account' : 'Enable Account')}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1545,72 +1617,74 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               <h3 style={{ color: '#e11d48', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 ⚠️ Delete Employee
               </h3>
-              <button className="modal-close" onClick={() => { if (!isDeleting) { setIsDeleteModalOpen(false); setSelectedEmpForDelete(null); } }} disabled={isDeleting}>×</button>
+              <button className="modal-close" type="button" onClick={() => { if (!isDeleting) { setIsDeleteModalOpen(false); setSelectedEmpForDelete(null); } }} disabled={isDeleting}>×</button>
             </div>
             <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
               Are you sure you want to permanently delete <strong>{selectedEmpForDelete.name}</strong> ({selectedEmpForDelete.empId})?
               This action is irreversible and will delete all associated timesheet entries.
             </div>
 
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
-                REASON FOR DELETION <span style={{ color: '#e11d48' }}>*</span>
-              </label>
-              <textarea
-                className="form-input"
-                style={{
-                  resize: 'vertical',
-                  minHeight: '90px',
-                  width: '100%',
-                  marginBottom: '0px',
-                  cursor: isDeleting ? 'not-allowed' : 'text',
-                  borderColor: (deleteError && !deleteReason.trim()) ? '#ef4444' : '',
-                  borderWidth: (deleteError && !deleteReason.trim()) ? '1.5px' : ''
-                }}
-                placeholder="Please specify a valid reason for deletion..."
-                value={deleteReason}
-                disabled={isDeleting}
-                onChange={(e) => {
-                  setDeleteReason(e.target.value);
-                  if (e.target.value.trim()) setDeleteError('');
-                }}
-              />
-              {deleteError && (
-                <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
-                  {deleteError}
-                </span>
-              )}
-            </div>
+            <form onSubmit={e => { e.preventDefault(); confirmDeleteSubmit(); }}>
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  REASON FOR DELETION <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <textarea
+                  id="delete-reason"
+                  className={`form-input ${deleteError ? 'invalid' : ''}`}
+                  style={{
+                    resize: 'vertical',
+                    minHeight: '90px',
+                    width: '100%',
+                    marginBottom: '0px',
+                    cursor: isDeleting ? 'not-allowed' : 'text'
+                  }}
+                  placeholder="Please specify a valid reason for deletion..."
+                  value={deleteReason}
+                  disabled={isDeleting}
+                  onChange={(e) => {
+                    setDeleteReason(e.target.value);
+                    if (e.target.value.trim()) setDeleteError('');
+                  }}
+                />
+                {deleteError && (
+                  <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
+                    {deleteError}
+                  </span>
+                )}
+              </div>
 
-            <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
-              <button
-                className="btn-cancel"
-                style={{ flex: 1, height: '40px', cursor: isDeleting ? 'not-allowed' : 'pointer' }}
-                onClick={() => { setIsDeleteModalOpen(false); setSelectedEmpForDelete(null); }}
-                disabled={isDeleting}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-submit-modal"
-                style={{
-                  flex: 1,
-                  height: '40px',
-                  backgroundColor: '#e11d48',
-                  color: '#fff',
-                  fontWeight: 'bold',
-                  borderRadius: '8px',
-                  border: 'none',
-                  transition: 'all 0.2s',
-                  opacity: (isDeleting || !deleteReason.trim()) ? 0.6 : 1,
-                  cursor: (isDeleting || !deleteReason.trim()) ? 'not-allowed' : 'pointer'
-                }}
-                onClick={confirmDeleteSubmit}
-                disabled={isDeleting || !deleteReason.trim()}
-              >
-                {isDeleting ? 'Deleting...' : 'Delete Permanently'}
-              </button>
-            </div>
+              <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  style={{ flex: 1, height: '40px', cursor: isDeleting ? 'not-allowed' : 'pointer' }}
+                  onClick={() => { setIsDeleteModalOpen(false); setSelectedEmpForDelete(null); }}
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit-modal"
+                  style={{
+                    flex: 1,
+                    height: '40px',
+                    backgroundColor: '#e11d48',
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    borderRadius: '8px',
+                    border: 'none',
+                    transition: 'all 0.2s',
+                    opacity: isDeleting ? 0.6 : 1,
+                    cursor: isDeleting ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

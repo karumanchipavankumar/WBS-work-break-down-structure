@@ -175,7 +175,17 @@ function AppModal({ type, title, message, confirmLabel, cancelLabel, onConfirm, 
 
   return (
     <div style={STYLES.overlay} onClick={(e) => { if (e.target === e.currentTarget) { if (onCancel) onCancel(); else if (onClose) onClose(); } }}>
-      <div style={STYLES.box} role="dialog" aria-modal="true" aria-label={title || 'Application dialog'}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (onConfirm) onConfirm();
+          else if (onClose) onClose();
+        }}
+        style={STYLES.box} 
+        role="dialog" 
+        aria-modal="true" 
+        aria-label={title || 'Application dialog'}
+      >
         <div style={STYLES.iconWrap(color)}>
           <Icon color={color} />
         </div>
@@ -186,6 +196,7 @@ function AppModal({ type, title, message, confirmLabel, cancelLabel, onConfirm, 
         <div style={STYLES.btnRow}>
           {!isAlertOnly && (
             <button
+              type="button"
               style={STYLES.btnCancel}
               onClick={onCancel}
               onMouseOver={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
@@ -195,8 +206,8 @@ function AppModal({ type, title, message, confirmLabel, cancelLabel, onConfirm, 
             </button>
           )}
           <button
+            type="submit"
             style={STYLES.btnConfirm(color)}
-            onClick={onConfirm || onClose}
             autoFocus
             onMouseOver={e => { e.currentTarget.style.opacity = '0.88'; }}
             onMouseOut={e => { e.currentTarget.style.opacity = '1'; }}
@@ -204,7 +215,7 @@ function AppModal({ type, title, message, confirmLabel, cancelLabel, onConfirm, 
             {resolvedConfirmLabel}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

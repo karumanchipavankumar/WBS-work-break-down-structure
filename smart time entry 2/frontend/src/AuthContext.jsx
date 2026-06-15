@@ -16,6 +16,31 @@ export const AuthProvider = ({ children }) => {
     return !(token && u);
   });
 
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
+
+  const triggerSessionExpired = () => {
+    setIsSessionExpired(true);
+    try {
+      sessionStorage.clear();
+      localStorage.clear();
+      localStorage.setItem('session_expired_event', 'inactivity_' + Date.now().toString());
+    } catch (err) {
+      console.error("Cleanup error during inactivity logout:", err);
+    }
+    window.history.replaceState({ appState: 'logged-out' }, '', window.location.href);
+  };
+
+  // Listen to custom DOM event from api.js response interceptor
+  useEffect(() => {
+    const handleSessionExpiredEvent = () => {
+      triggerSessionExpired();
+    };
+    window.addEventListener('session-expired', handleSessionExpiredEvent);
+    return () => {
+      window.removeEventListener('session-expired', handleSessionExpiredEvent);
+    };
+  }, []);
+
   // 1. Session sharing and global storage events listener
   useEffect(() => {
     const handleStorage = (event) => {
@@ -31,13 +56,15 @@ export const AuthProvider = ({ children }) => {
           console.error("Failed to parse shared session:", err);
         }
         setLoading(false);
+      } else if (event.key === 'session_expired_event' && event.newValue) {
+        sessionStorage.clear();
+        setIsSessionExpired(true);
       } else if (event.key === 'logout_event' && event.newValue) {
         // Clear all storage on sync logout
         sessionStorage.clear();
-        if (event.newValue.startsWith('inactivity_')) {
-          sessionStorage.setItem('auth_message', 'Your session has expired due to inactivity. Please log in again.');
+        if (event.newValue.startsWith('manual_')) {
+          setUser(null);
         }
-        setUser(null);
       } else if (event.key === 'request_session' && event.newValue) {
         // Send our session to the requesting tab
         const token = sessionStorage.getItem('token');
@@ -100,19 +127,7 @@ export const AuthProvider = ({ children }) => {
       if (lastActivity) {
         const diff = Date.now() - Number(lastActivity);
         if (diff > 5 * 60 * 1000) { // 5 minutes inactivity
-          // Log out this tab
-          sessionStorage.setItem('auth_message', 'Your session has expired due to inactivity. Please log in again.');
-          
-          try {
-            sessionStorage.clear();
-            localStorage.clear();
-            localStorage.setItem('logout_event', 'inactivity_' + Date.now().toString());
-          } catch (err) {
-            console.error("Cleanup error during inactivity logout:", err);
-          }
-
-          window.history.replaceState({ appState: 'logged-out' }, '', window.location.href);
-          setUser(null);
+          triggerSessionExpired();
         }
       }
     }, 2000);
@@ -166,7 +181,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, isSessionExpired, setIsSessionExpired }}>
       {children}
     </AuthContext.Provider>
   );

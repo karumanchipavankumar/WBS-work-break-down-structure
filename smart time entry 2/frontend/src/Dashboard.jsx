@@ -66,7 +66,7 @@ function hasUnsavedChanges() {
   return false;
 }
 export default function Dashboard() {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, isSessionExpired } = useContext(AuthContext);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [logoSrc, setLogoSrc] = useState('/logo.jpg');
 
@@ -196,6 +196,10 @@ export default function Dashboard() {
     }
 
     const handlePopState = async (e) => {
+      if (isSessionExpired) {
+        logout();
+        return;
+      }
       const state = e.state;
       if (state && state.appState === 'authenticated') {
         // Internal navigation
@@ -240,7 +244,7 @@ export default function Dashboard() {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [logout, user?.role]);
+  }, [logout, user?.role, isSessionExpired]);
 
   // ── Unsaved-changes guard on page unload ─────────────────────────────────
   useEffect(() => {

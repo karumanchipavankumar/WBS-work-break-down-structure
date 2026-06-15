@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from './api';
 
 export default function ResetOneTimePassword({ token, onBackToLogin }) {
@@ -21,6 +21,15 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Refs and error highlights
+  const oldPasswordRef = useRef(null);
+  const newPasswordRef = useRef(null);
+  const confirmPasswordRef = useRef(null);
+
+  const [oldPasswordError, setOldPasswordError] = useState(false);
+  const [newPasswordError, setNewPasswordError] = useState(false);
+  const [confirmPasswordError, setConfirmPasswordError] = useState(false);
 
   // Dynamic canvas-based transparency processing for the company logo
   useEffect(() => {
@@ -82,17 +91,38 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
+    setOldPasswordError(false);
+    setNewPasswordError(false);
+    setConfirmPasswordError(false);
 
     if (!oldPassword.trim()) {
       setErrorMsg('Please enter your temporary/old password.');
+      setOldPasswordError(true);
+      if (oldPasswordRef.current) oldPasswordRef.current.focus();
+      return;
+    }
+    if (!newPassword.trim()) {
+      setErrorMsg('Please enter your new password.');
+      setNewPasswordError(true);
+      if (newPasswordRef.current) newPasswordRef.current.focus();
+      return;
+    }
+    if (!confirmPassword.trim()) {
+      setErrorMsg('Please confirm your new password.');
+      setConfirmPasswordError(true);
+      if (confirmPasswordRef.current) confirmPasswordRef.current.focus();
       return;
     }
     if (newPassword.length < 6) {
       setErrorMsg('New password must be at least 6 characters long.');
+      setNewPasswordError(true);
+      if (newPasswordRef.current) newPasswordRef.current.focus();
       return;
     }
     if (newPassword !== confirmPassword) {
       setErrorMsg('New passwords do not match.');
+      setConfirmPasswordError(true);
+      if (confirmPasswordRef.current) confirmPasswordRef.current.focus();
       return;
     }
 
@@ -111,6 +141,18 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
         const data = err.response?.data;
         const msg = data?.message || 'Failed to setup password. Please try again.';
         setErrorMsg(msg);
+        
+        if (msg.includes('history') || msg.includes('previous') || msg.includes('reuse') || msg.includes('last 3')) {
+          setNewPasswordError(true);
+          setConfirmPasswordError(true);
+          if (newPasswordRef.current) newPasswordRef.current.focus();
+        } else if (msg.includes('temporary') || msg.includes('current') || msg.includes('old')) {
+          setOldPasswordError(true);
+          if (oldPasswordRef.current) oldPasswordRef.current.focus();
+        } else {
+          setNewPasswordError(true);
+          if (newPasswordRef.current) newPasswordRef.current.focus();
+        }
       })
       .finally(() => {
         setLoading(false);
@@ -201,15 +243,17 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px', textAlign: 'left' }}>Temporary / Old Password <span style={{color:'#e11d48'}}>*</span></label>
                 <div style={{ position: 'relative' }}>
                   <input 
+                    ref={oldPasswordRef}
                     type={showOldPassword ? "text" : "password"} 
                     value={oldPassword}
-                    onChange={e => setOldPassword(e.target.value)}
+                    onChange={e => { setOldPassword(e.target.value); setOldPasswordError(false); setErrorMsg(''); }}
                     placeholder="Enter temporary password from email"
-                    required
                     style={{
                       width: '100%',
                       padding: '11px 40px 11px 14px',
                       border: '1.5px solid #dde3ef',
+                      borderColor: oldPasswordError ? '#d94f4f' : '#dde3ef',
+                      boxShadow: oldPasswordError ? '0 0 0 2.5px rgba(217, 79, 79, 0.2)' : 'none',
                       borderRadius: '10px',
                       fontSize: '14px',
                       color: '#1a2744',
@@ -255,15 +299,17 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px', textAlign: 'left' }}>New Password <span style={{color:'#e11d48'}}>*</span></label>
                 <div style={{ position: 'relative' }}>
                   <input 
+                    ref={newPasswordRef}
                     type={showNewPassword ? "text" : "password"} 
                     value={newPassword}
-                    onChange={e => setNewPassword(e.target.value)}
+                    onChange={e => { setNewPassword(e.target.value); setNewPasswordError(false); setErrorMsg(''); }}
                     placeholder="At least 6 characters"
-                    required
                     style={{
                       width: '100%',
                       padding: '11px 40px 11px 14px',
                       border: '1.5px solid #dde3ef',
+                      borderColor: newPasswordError ? '#d94f4f' : '#dde3ef',
+                      boxShadow: newPasswordError ? '0 0 0 2.5px rgba(217, 79, 79, 0.2)' : 'none',
                       borderRadius: '10px',
                       fontSize: '14px',
                       color: '#1a2744',
@@ -309,15 +355,17 @@ export default function ResetOneTimePassword({ token, onBackToLogin }) {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px', textAlign: 'left' }}>Confirm New Password <span style={{color:'#e11d48'}}>*</span></label>
                 <div style={{ position: 'relative' }}>
                   <input 
+                    ref={confirmPasswordRef}
                     type={showConfirmPassword ? "text" : "password"} 
                     value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
+                    onChange={e => { setConfirmPassword(e.target.value); setConfirmPasswordError(false); setErrorMsg(''); }}
                     placeholder="Repeat new password"
-                    required
                     style={{
                       width: '100%',
                       padding: '11px 40px 11px 14px',
                       border: '1.5px solid #dde3ef',
+                      borderColor: confirmPasswordError ? '#d94f4f' : '#dde3ef',
+                      boxShadow: confirmPasswordError ? '0 0 0 2.5px rgba(217, 79, 79, 0.2)' : 'none',
                       borderRadius: '10px',
                       fontSize: '14px',
                       color: '#1a2744',

@@ -212,6 +212,7 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
     } else if (e.key === 'Enter') {
       if (isOpen && highlightedIndex >= 0 && highlightedIndex < timeSlots.length) {
         e.preventDefault();
+        e.stopPropagation();
         selectTime(timeSlots[highlightedIndex]);
       }
     } else if (e.key === 'Escape') {
@@ -368,9 +369,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [editedRows, setEditedRows] = useState({});
   const [rejectionReasons, setRejectionReasons] = useState({});
   
-  const [otModal, setOtModal] = useState({ isOpen: false, dateStr: '', otHours: '', reason: '', remarks: '', entryId: null, status: '', rejectionReason: '', clientApproved: false, clientApprovalFile: '', isReapply: false, otReapplyCount: 0, oldReason: '', isNewReasonVisible: false });
-  const [rejectModal, setRejectModal] = useState({ isOpen: false, entryId: null, dateStr: '', isOT: false, reason: '' });
-  const [grantModal, setGrantModal] = useState({ isOpen: false, entryId: null, dateStr: '', message: 'Granted access for Resubmit OT application' });
+  const [otModal, setOtModal] = useState({ isOpen: false, dateStr: '', otHours: '', reason: '', remarks: '', entryId: null, status: '', rejectionReason: '', clientApproved: false, clientApprovalFile: '', isReapply: false, otReapplyCount: 0, oldReason: '', isNewReasonVisible: false, hasError: false });
+  const [rejectModal, setRejectModal] = useState({ isOpen: false, entryId: null, dateStr: '', isOT: false, reason: '', hasError: false });
+  const [grantModal, setGrantModal] = useState({ isOpen: false, entryId: null, dateStr: '', message: 'Granted access for Resubmit OT application', hasError: false });
   const [reasonViewModal, setReasonViewModal] = useState({ isOpen: false, reason: '', title: '' });
   const [imgPreview, setImgPreview] = useState(null);
   const [initialOtData, setInitialOtData] = useState(null);
@@ -651,8 +652,25 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       errors.contactNumber = contactDuplicateErrorProfile;
     }
 
+    const focusFirstError = (errs) => {
+      const fieldsOrder = ['name', 'dept', 'manager', 'email', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber'];
+      for (const field of fieldsOrder) {
+        if (errs[field]) {
+          setTimeout(() => {
+            const el = document.getElementById(`profile-${field}`) || document.querySelector(`[name="profile-${field}"]`);
+            if (el) el.focus();
+          }, 50);
+          break;
+        }
+      }
+    };
+
     setProfileErrors(errors);
-    return Object.keys(errors).length === 0;
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors);
+      return false;
+    }
+    return true;
   };
 
   const checkPrecedingProfileFields = (currentField) => {
@@ -709,7 +727,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   };
 
   const openOtModal = (data) => {
-    setOtModal(data);
+    setOtModal({ ...data, hasError: false });
     setInitialOtData(data);
   };
 
@@ -960,6 +978,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     };
   };
 
+  const handleRowKeyDown = (e, dateStr) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveTimesheet(dateStr, true);
+    }
+  };
+
   const saveTimesheet = async (dateStr, isSubmit) => {
     if (!isAdmin && isPastDeadline(dateStr)) {
       await showAlert('This timesheet is locked. Modifications are no longer permitted after the 15th of the following month.', { title: 'Timesheet Locked', type: 'warn' });
@@ -979,18 +1004,44 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     
     const isWknd = row.date && (new Date(row.date).getDay() === 0 || new Date(row.date).getDay() === 6);
     const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
+
+    const focusFirstRowInvalidField = () => {
+      setTimeout(() => {
+        const rowEl = document.getElementById(`row-${dateStr}`);
+        if (rowEl) {
+          const inputs = rowEl.querySelectorAll('.time-select-container input');
+          for (const input of inputs) {
+            if (!input.value || input.value.trim() === '') {
+              input.focus();
+              return;
+            }
+          }
+          if (inputs.length > 0) inputs[0].focus();
+        }
+      }, 100);
+    };
+
     if (isSubmit && ['Working Day', 'WFH'].includes(type)) {
       if (!row.amIn || !row.amOut || !row.lunchOut || !row.lunchIn || !row.pmIn || !row.pmOut) {
         await showAlert('All time fields must be filled before submitting.', { title: 'Validation Error', type: 'warn' });
+        focusFirstRowInvalidField();
         return;
       }
     }
 
     const errs = getValidationErrors(row);
-    if (errs.length > 0) { await showAlert('Validation Errors: ' + errs.join(', '), { title: 'Validation Error', type: 'warn' }); return; }
+    if (errs.length > 0) {
+      await showAlert('Validation Errors: ' + errs.join(', '), { title: 'Validation Error', type: 'warn' });
+      focusFirstRowInvalidField();
+      return;
+    }
 
     const h = calculateHours(row);
-    if (h.error) { await showAlert('Validation Errors: ' + h.errors.join(', '), { title: 'Validation Error', type: 'warn' }); return; }
+    if (h.error) {
+      await showAlert('Validation Errors: ' + h.errors.join(', '), { title: 'Validation Error', type: 'warn' });
+      focusFirstRowInvalidField();
+      return;
+    }
 
     const otAppliedAmIn = row.otAppliedAmIn !== undefined ? row.otAppliedAmIn : (entries[dateStr]?.amIn || '');
     const otAppliedAmOut = row.otAppliedAmOut !== undefined ? row.otAppliedAmOut : (entries[dateStr]?.amOut || '');
@@ -1230,13 +1281,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       await showAlert('Entry ID is missing. Please refresh the page.', { title: 'Error', type: 'warn' });
       return;
     }
-    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: false, reason: '' });
+    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: false, reason: '', hasError: false });
   };
 
   const formatReasonText = (text) => {
     if (!text) return text;
     let normalized = text.trim().replace(/\s+/g, ' ');
-    let words = normalized.split(' ');
+    const words = normalized.split(' ');
     if (words.length > 240) {
       normalized = words.slice(0, 240).join(' ');
     }
@@ -1245,7 +1296,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleRejectSubmit = async () => {
     const { entryId, isOT, reason, dateStr } = rejectModal;
-    if (!reason || reason.trim() === '') { await showAlert('Rejection reason is required.', { title: 'Reason Required', type: 'warn' }); return; }
+    if (!reason || reason.trim() === '') {
+      setRejectModal(prev => ({ ...prev, hasError: true }));
+      setTimeout(() => {
+        const el = document.getElementById("reject-reason");
+        if (el) el.focus();
+      }, 50);
+      return;
+    }
     
     const formattedReason = formatReasonText(reason);
     
@@ -1320,7 +1378,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleGrantResubmit = async () => {
     const { entryId, message, dateStr } = grantModal;
-    if (!message || message.trim() === '') { await showAlert('Message is required.', { title: 'Message Required', type: 'warn' }); return; }
+    if (!message || message.trim() === '') {
+      setGrantModal(prev => ({ ...prev, hasError: true }));
+      setTimeout(() => {
+        const el = document.getElementById("grant-message");
+        if (el) el.focus();
+      }, 50);
+      return;
+    }
     setProcessingMessage('Granting resubmission access...');
     setGrantModal({ ...grantModal, isOpen: false });
     try {
@@ -1344,7 +1409,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       await showAlert('Entry ID is missing for OT rejection.', { title: 'Error', type: 'warn' });
       return;
     }
-    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: true, reason: '' });
+    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: true, reason: '', hasError: false });
   };
 
   const handleFileChange = async (e) => {
@@ -1375,16 +1440,15 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   };
 
   const handleOTSubmit = async (status) => {
-    // Guard: silently block submission if the button should be in disabled state
-    const hasChangedGuard = !initialOtData || (
-      otModal.reason !== initialOtData.reason ||
-      otModal.clientApproved !== initialOtData.clientApproved ||
-      otModal.clientApprovalFile !== initialOtData.clientApprovalFile
-    );
-    const isDisabledGuard = otModal.isReapply
-      ? !hasChangedGuard
-      : (!otModal.reason.trim() && !otModal.clientApprovalFile);
-    if (isDisabledGuard) return;
+    const formattedReason = formatReasonText(otModal.reason);
+    if (!formattedReason || formattedReason.trim() === '') {
+      setOtModal(prev => ({ ...prev, hasError: true }));
+      setTimeout(() => {
+        const el = document.getElementById("ot-reason");
+        if (el) el.focus();
+      }, 50);
+      return;
+    }
 
     let row = editedRows[otModal.dateStr] || entries[otModal.dateStr] || { date: otModal.dateStr, type: 'Working Day' };
     
@@ -1399,25 +1463,20 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const h = calculateHours(row);
     if (h.error) { await showAlert('Validation Errors: ' + h.errors.join(', '), { title: 'Validation Error', type: 'warn' }); return; }
 
-    const formattedReason = formatReasonText(otModal.reason);
-    const formattedRemarks = formatReasonText(otModal.remarks);
-
-    if (!formattedReason || (formattedReason === 'Other' && (!formattedRemarks || formattedRemarks === ''))) {
-      await showAlert('Please provide a reason/remarks for Overtime.', { title: 'Reason Required', type: 'warn' });
-      return;
-    }
-
     if (!row.user || !row.user.id) row.user = { id: employee.id };
 
     const isReapplyOnRejected = otModal.isReapply;
 
     if (isReapplyOnRejected && !otModal.timingsChanged) {
       const oldReason = formatReasonText(otModal.oldReason || row.otReason || '');
-      const oldRemarks = formatReasonText(row.otRemarks || '');
       const oldClientApprovalFile = row.clientApprovalFile || '';
       const isSameFile = otModal.clientApprovalFile === oldClientApprovalFile;
-      if (formattedReason === oldReason && formattedRemarks === oldRemarks && isSameFile) {
-        await showAlert('Please provide a new or updated reason/remarks for reapplying OT.', { title: 'No Changes Detected', type: 'warn' });
+      if (formattedReason === oldReason && isSameFile) {
+        setOtModal(prev => ({ ...prev, hasError: true }));
+        setTimeout(() => {
+          const el = document.getElementById("ot-reason");
+          if (el) el.focus();
+        }, 50);
         return;
       }
     }
@@ -1516,15 +1575,38 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const handleExportSubmit = async () => {
     const { fromDate, toDate } = exportModal;
     console.log('[Export] Start submit', { fromDate, toDate });
-    if (!fromDate || !toDate) {
-      setExportModal(m => ({ ...m, error: 'Please select both From and To dates.' }));
+    
+    const fromErr = !fromDate;
+    const toErr = !toDate;
+    const dateRangeErr = fromDate && toDate && (fromDate > toDate);
+    
+    if (fromErr || toErr) {
+      setExportModal(m => ({ 
+        ...m, 
+        error: 'Please select both From and To dates.',
+        fromDateError: fromErr,
+        toDateError: toErr
+      }));
+      setTimeout(() => {
+        const el = document.getElementById(fromErr ? "export-from-date" : "export-to-date");
+        if (el) el.focus();
+      }, 50);
       return;
     }
-    if (fromDate > toDate) {
-      setExportModal(m => ({ ...m, error: '"From" date must be on or before "To" date.' }));
+    if (dateRangeErr) {
+      setExportModal(m => ({ 
+        ...m, 
+        error: '"From" date must be on or before "To" date.',
+        fromDateError: true,
+        toDateError: true
+      }));
+      setTimeout(() => {
+        const el = document.getElementById("export-from-date");
+        if (el) el.focus();
+      }, 50);
       return;
     }
-    setExportModal(m => ({ ...m, isLoading: true, error: '' }));
+    setExportModal(m => ({ ...m, isLoading: true, error: '', fromDateError: false, toDateError: false }));
     try {
       const filename = getExportFilename(employee.name, employee.empId, fromDate, toDate);
       console.log('[Export] Generated filename:', filename);
@@ -1951,7 +2033,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                        calculateHours(entries[dateStr]).ot !== '--';
                 const isFutureDay = isAfter(startOfDay(d), startOfDay(new Date()));
                 const isLocked = !isAdmin && isPastDeadline(dateStr);
-                const isReadonly = isAdmin || (isApproved && !hasResubmitAccess && !isAdmin) || (!isAdmin && isFutureDay) || isLocked;
+                const isPendingWorkflow = 
+                  (row.status && row.status.toLowerCase().includes('pending')) ||
+                  (row.otStatus && row.otStatus.toLowerCase().includes('pending')) ||
+                  ['Filed', 'Refilled'].includes(row.otStatus);
+                const isReadonly = isAdmin || isPendingWorkflow || (isApproved && !hasResubmitAccess && !isAdmin) || (!isAdmin && isFutureDay) || isLocked;
                 const shouldShowData = !isAdmin || row.submitted;
 
                 let rowClass = isWknd ? 'row-weekend' : (row.type === 'Holiday' ? 'row-holiday' : (row.type === 'Paid Leave' || row.type === 'Unpaid Leave' ? 'row-leave' : (row.type === 'WFH' ? 'row-wfh' : '')));
@@ -1981,7 +2067,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                             date: dStr,
                             hours: h.tot,
                             reason: existingReason,
-                            isReadOnly: ['Approved', 'Rejected'].includes(r.status)
+                            isReadOnly: ['Approved', 'Rejected'].includes(r.status) || isPendingWorkflow
                           });
                           setAdminRejectionText('');
                           setIsAdminRejectMode(false);
@@ -1992,7 +2078,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                             date: dStr, 
                             timings: r, 
                             hours: h.tot, 
-                            isReadOnly: ['Approved', 'Rejected'].includes(r.status)
+                            isReadOnly: ['Approved', 'Rejected'].includes(r.status) || isPendingWorkflow
                           });
                           setShortHoursReasonText(existingReason);
                           setShortHoursError('');
@@ -2079,7 +2165,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 };
 
                 return (
-                  <tr key={dateStr} className={rowClass} style={rowStyle}>
+                  <tr 
+                    key={dateStr} 
+                    id={`row-${dateStr}`} 
+                    className={rowClass} 
+                    style={rowStyle}
+                    onKeyDown={e => handleRowKeyDown(e, dateStr)}
+                  >
                     <td style={{whiteSpace:'nowrap'}}>{format(d, 'dd MMM')}</td>
                     <td>{format(d, 'EEE')}</td>
                     <td>
@@ -2183,7 +2275,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                  rejectionReason: row.otRejectionReason,
                                  clientApproved: row.clientApproved,
                                  clientApprovalFile: row.clientApprovalFile,
-                                 isReadOnly: row.status === 'Approved' || isAdmin,
+                                 isReadOnly: row.status === 'Approved' || isAdmin || isPendingWorkflow,
                                  isReapply: originalHasOT && (row.status === 'Rejected' || row.otStatus === 'Rejected' || row.otStatus === 'Refilled' || row.otStatus === 'Filed' || hasResubmitAccess || timingsChangedSinceOtApply),
                                  timingsChanged: timingsChangedSinceOtApply,
                                  oldReason: row.otReason || '',
@@ -2455,215 +2547,205 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           <div className="modal" style={{maxWidth: '450px', padding: '15px'}}>
             <div className="modal-header" style={{marginBottom: '12px'}}>
               <h3 style={{fontSize:'18px', color:'#1e293b'}}>OT Application Details</h3>
-              <button className="modal-close" onClick={handleCloseOtModal}>&times;</button>
+              <button className="modal-close" type="button" onClick={handleCloseOtModal}>&times;</button>
             </div>
 
-            <div className="form-row" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px'}}>
-              <div><label className="form-label" style={{fontSize:'11px', color:'#666'}}>DATE</label><input type="text" disabled value={otModal.dateStr} className="form-input" style={{background:'#f9f9f9', fontSize:'13px', padding:'6px'}} /></div>
-              <div><label className="form-label" style={{fontSize:'11px', color:'#666'}}>OT HOURS</label><input type="text" disabled value={otModal.otHours} className="form-input" style={{background:'#f9f9f9', fontSize:'13px', padding:'6px'}} /></div>
-            </div>
+            <form onSubmit={e => { e.preventDefault(); handleOTSubmit('Filed'); }} style={{ display: 'contents' }}>
+              <div className="form-row" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px'}}>
+                <div><label className="form-label" style={{fontSize:'11px', color:'#666'}}>DATE</label><input type="text" disabled value={otModal.dateStr} className="form-input" style={{background:'#f9f9f9', fontSize:'13px', padding:'6px'}} /></div>
+                <div><label className="form-label" style={{fontSize:'11px', color:'#666'}}>OT HOURS</label><input type="text" disabled value={otModal.otHours} className="form-input" style={{background:'#f9f9f9', fontSize:'13px', padding:'6px'}} /></div>
+              </div>
 
-            <div className="form-group" style={{marginBottom: '12px'}}>
-              {otModal.isReapply && (
-                <div style={{marginBottom: '12px'}}>
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'6px'}}>
-                    <label className="form-label" style={{marginBottom:0, fontSize:'11px'}}>PREVIOUS REASON</label>
-                    {!otModal.isNewReasonVisible && !isAdmin && !otModal.isReadOnly && (
-                      <button 
-                        onClick={() => setOtModal({...otModal, isNewReasonVisible: true, reason: ''})}
-                        style={{background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:'4px', padding:'2px 8px', fontSize:'11px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}
-                      >
-                        <span style={{fontSize:'14px', fontWeight:'bold'}}>+</span> Add New Reason
-                      </button>
+              <div className="form-group" style={{marginBottom: '12px'}}>
+                {otModal.isReapply && (
+                  <div style={{marginBottom: '12px'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'6px'}}>
+                      <label className="form-label" style={{marginBottom:0, fontSize:'11px'}}>PREVIOUS REASON</label>
+                      {!otModal.isNewReasonVisible && !isAdmin && !otModal.isReadOnly && (
+                        <button 
+                          type="button"
+                          onClick={() => setOtModal({...otModal, isNewReasonVisible: true, reason: ''})}
+                          style={{background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:'4px', padding:'2px 8px', fontSize:'11px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}
+                        >
+                          <span style={{fontSize:'14px', fontWeight:'bold'}}>+</span> Add New Reason
+                        </button>
+                      )}
+                    </div>
+                    <div style={{padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', color: '#4b5563'}}>
+                      {otModal.oldReason || otModal.reason || <span style={{color: '#9ca3af', fontStyle: 'italic'}}>No reason provided</span>}
+                    </div>
+                  </div>
+                )}
+
+                {(!otModal.isReapply || otModal.isNewReasonVisible) && (
+                  <div>
+                    <label className="form-label" style={{fontSize:'11px', marginBottom:'6px', display:'block'}}>
+                      {otModal.isReapply ? 'NEW OT REASON' : 'OT REASON'} <span style={{color:'#e11d48'}}>*</span>
+                    </label>
+                    {otModal.isReadOnly ? (
+                      <div style={{padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', color: '#4b5563', minHeight: '40px'}}>
+                        {otModal.reason || <span style={{color: '#9ca3af', fontStyle: 'italic'}}>No reason provided</span>}
+                      </div>
+                    ) : (
+                      <>
+                        <textarea 
+                          id="ot-reason"
+                          className={`form-input ${otModal.hasError ? 'invalid' : ''}`} 
+                          style={{height: '80px', width: '100%', padding: '10px', borderRadius: '6px', border: otModal.hasError ? '1.5px solid #ef4444' : '1px solid #ddd', fontSize: '13px', resize: 'vertical'}}
+                          value={otModal.reason}
+                          onChange={e => setOtModal({...otModal, reason: e.target.value, hasError: false, errorMsg: ''})}
+                          placeholder={otModal.isReapply ? "Enter the new reason for OT" : "Enter the reason for OT"}
+                          disabled={otModal.isReadOnly}
+                        />
+                        {otModal.hasError && (
+                          <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
+                            {otModal.errorMsg || 'OT Reason is required.'}
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
-                  <div style={{padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', color: '#4b5563'}}>
-                    {otModal.oldReason || otModal.reason || <span style={{color: '#9ca3af', fontStyle: 'italic'}}>No reason provided</span>}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {(!otModal.isReapply || otModal.isNewReasonVisible) && (
-                <div>
-                  <label className="form-label" style={{fontSize:'11px', marginBottom:'6px', display:'block'}}>
-                    {otModal.isReapply ? 'NEW OT REASON' : 'OT REASON'} <span style={{color:'#e11d48'}}>*</span>
-                  </label>
-                  {otModal.isReadOnly ? (
-                    <div style={{padding: '10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', color: '#4b5563', minHeight: '40px'}}>
-                      {otModal.reason || <span style={{color: '#9ca3af', fontStyle: 'italic'}}>No reason provided</span>}
-                    </div>
+              <div style={{marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: (!!otModal.clientApproved) ? '#f0fdf4' : '#fff', borderRadius: '6px', border: `1px solid ${(!!otModal.clientApproved) ? '#bbf7d0' : '#ddd'}`}}>
+                <input 
+                  type="checkbox" 
+                  id="clientAppr"
+                  disabled={otModal.isReadOnly}
+                  checked={!!otModal.clientApproved}
+                  onChange={e => setOtModal({...otModal, clientApproved: e.target.checked})}
+                  style={{width:'16px', height:'16px', cursor: otModal.isReadOnly ? 'default' : 'pointer'}}
+                />
+                <label htmlFor="clientAppr" style={{fontSize:'12px', fontWeight:'500', cursor: otModal.isReadOnly ? 'default' : 'pointer', color: (!!otModal.clientApproved) ? '#166534' : '#333'}}>
+                  Client Approval Received <span style={{color:'#e11d48'}}>*</span>
+                </label>
+              </div>
+
+              {(!!otModal.clientApproved) && (
+                <div style={{marginBottom: '15px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px dashed #cbd5e1'}}>
+                  <label className="form-label" style={{fontSize:'11px'}}>APPROVAL ATTACHMENT {(!otModal.isReadOnly && otModal.clientApprovalFile) ? '(OPTIONAL)' : ''}</label>
+                  {!otModal.isReadOnly ? (
+                    <>
+                      <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
+                        <input 
+                          key={otModal.clientApprovalFile ? 'attached' : 'empty'}
+                          type="file" 
+                          accept="image/*,.pdf" 
+                          onChange={handleFileChange} 
+                          style={{fontSize:'11px', flex:1}} 
+                        />
+                      </div>
+                      {otModal.clientApprovalFile && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                          {otModal.clientApprovalFile.startsWith('data:application/pdf') ? (
+                            <div 
+                              onClick={() => setImgPreview(otModal.clientApprovalFile)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', color: '#475569' }}
+                            >
+                              <span>📄 PDF Document (Click to view)</span>
+                            </div>
+                          ) : (
+                            <div 
+                              onClick={() => setImgPreview(otModal.clientApprovalFile)}
+                              style={{ cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: '1px solid #cbd5e1', display: 'inline-flex', alignItems: 'center' }}
+                              title="Click to enlarge"
+                            >
+                              <img src={otModal.clientApprovalFile} alt="Preview" style={{ maxHeight: '60px', maxWidth: '120px', display: 'block' }} />
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const confirmDelete = await showConfirm(
+                                'Do you want to remove this image?',
+                                { title: 'Remove Image', type: 'remove', confirmLabel: 'Remove', cancelLabel: 'Keep' }
+                              );
+                              if (confirmDelete) {
+                                setOtModal(prev => ({ ...prev, clientApprovalFile: '' }));
+                              }
+                            }}
+                            style={{
+                              background: '#fee2e2',
+                              color: '#b91c1c',
+                              border: '1px solid #fecaca',
+                              borderRadius: '50%',
+                              width: '24px',
+                              height: '24px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              fontSize: '16px',
+                              fontWeight: 'bold',
+                              lineHeight: 1,
+                              padding: 0,
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = '#fecaca'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                            title="Remove attachment"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      )}
+                    </>
                   ) : (
-                    <textarea 
-                      className="form-input" 
-                      style={{height: '80px', width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '13px', resize: 'vertical'}}
-                      value={otModal.reason}
-                      onChange={e => setOtModal({...otModal, reason: e.target.value})}
-                      placeholder={otModal.isReapply ? "Enter the new reason for OT" : "Enter the reason for OT"}
-                      disabled={otModal.isReadOnly}
-                    />
+                    otModal.clientApprovalFile ? (
+                      <div style={{cursor: 'pointer', textAlign: 'center'}} onClick={() => setImgPreview(otModal.clientApprovalFile)}>
+                         <img src={otModal.clientApprovalFile} alt="Approval" style={{maxWidth:'100%', maxHeight:'80px', borderRadius:'4px', border:'1px solid #ddd'}} />
+                         <div style={{fontSize:'11px', color:'#455fa0', marginTop:'4px'}}>Click to enlarge</div>
+                      </div>
+                    ) : (
+                      <div style={{fontSize:'11px', color:'#94a3b8', fontStyle:'italic'}}>No attachment provided</div>
+                    )
                   )}
                 </div>
               )}
-            </div>
 
-            <div style={{marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: (!!otModal.clientApproved) ? '#f0fdf4' : '#fff', borderRadius: '6px', border: `1px solid ${(!!otModal.clientApproved) ? '#bbf7d0' : '#ddd'}`}}>
-              <input 
-                type="checkbox" 
-                id="clientAppr"
-                disabled={otModal.isReadOnly}
-                checked={!!otModal.clientApproved}
-                onChange={e => setOtModal({...otModal, clientApproved: e.target.checked})}
-                style={{width:'16px', height:'16px', cursor: otModal.isReadOnly ? 'default' : 'pointer'}}
-              />
-              <label htmlFor="clientAppr" style={{fontSize:'12px', fontWeight:'500', cursor: otModal.isReadOnly ? 'default' : 'pointer', color: (!!otModal.clientApproved) ? '#166534' : '#333'}}>
-                Client Approval Received <span style={{color:'#e11d48'}}>*</span>
-              </label>
-            </div>
+              {otModal.isReapply && otModal.rejectionReason && (
+                <div style={{background:'#fff1f2', color:'#9f1239', padding:'8px', borderRadius:'6px', border:'1px solid #fecdd3', fontSize:'12px', marginBottom:'12px'}}>
+                  <strong>Rejection Reason:</strong> {otModal.rejectionReason}
+                </div>
+              )}
 
-            {(!!otModal.clientApproved) && (
-              <div style={{marginBottom: '15px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px dashed #cbd5e1'}}>
-                <label className="form-label" style={{fontSize:'11px'}}>APPROVAL ATTACHMENT {(!otModal.isReadOnly && otModal.clientApprovalFile) ? '(OPTIONAL)' : ''}</label>
-                {!otModal.isReadOnly ? (
+              <div className="modal-actions" style={{marginTop:'5px', display: 'flex', gap: '10px'}}>
+                {isAdmin && (otModal.status === 'Filed' || otModal.status === 'Refilled') && (
                   <>
-                    <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
-                      <input 
-                        key={otModal.clientApprovalFile ? 'attached' : 'empty'}
-                        type="file" 
-                        accept="image/*,.pdf" 
-                        onChange={handleFileChange} 
-                        style={{fontSize:'11px', flex:1}} 
-                      />
-                    </div>
-                    {otModal.clientApprovalFile && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
-                        {otModal.clientApprovalFile.startsWith('data:application/pdf') ? (
-                          <div 
-                            onClick={() => setImgPreview(otModal.clientApprovalFile)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', color: '#475569' }}
-                          >
-                            <span>📄 PDF Document (Click to view)</span>
-                          </div>
-                        ) : (
-                          <div 
-                            onClick={() => setImgPreview(otModal.clientApprovalFile)}
-                            style={{ cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: '1px solid #cbd5e1', display: 'inline-flex', alignItems: 'center' }}
-                            title="Click to enlarge"
-                          >
-                            <img src={otModal.clientApprovalFile} alt="Preview" style={{ maxHeight: '60px', maxWidth: '120px', display: 'block' }} />
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const confirmDelete = await showConfirm(
-                              'Do you want to remove this image?',
-                              { title: 'Remove Image', type: 'remove', confirmLabel: 'Remove', cancelLabel: 'Keep' }
-                            );
-                            if (confirmDelete) {
-                              setOtModal(prev => ({ ...prev, clientApprovalFile: '' }));
-                            }
-                          }}
-                          style={{
-                            background: '#fee2e2',
-                            color: '#b91c1c',
-                            border: '1px solid #fecaca',
-                            borderRadius: '50%',
-                            width: '24px',
-                            height: '24px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            lineHeight: 1,
-                            padding: 0,
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseOver={(e) => { e.currentTarget.style.background = '#fecaca'; }}
-                          onMouseOut={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
-                          title="Remove attachment"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    )}
+                    <button 
+                      type="button"
+                      className="btn-submit-modal" 
+                      onClick={() => approveOT(otModal.entryId, otModal.dateStr)}
+                      style={{flex: 1, padding:'8px', fontSize:'14px', background:'#2d8f7b', color:'#fff'}}
+                    >
+                      Approve OT
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn-submit-modal" 
+                      onClick={() => rejectOT(otModal.entryId, otModal.dateStr)}
+                      style={{flex: 1, padding:'8px', fontSize:'14px', background:'#e85d5d', color:'#fff'}}
+                    >
+                      Reject OT
+                    </button>
                   </>
-                ) : (
-                  otModal.clientApprovalFile ? (
-                    <div style={{cursor: 'pointer', textAlign: 'center'}} onClick={() => setImgPreview(otModal.clientApprovalFile)}>
-                       <img src={otModal.clientApprovalFile} alt="Approval" style={{maxWidth:'100%', maxHeight:'80px', borderRadius:'4px', border:'1px solid #ddd'}} />
-                       <div style={{fontSize:'11px', color:'#455fa0', marginTop:'4px'}}>Click to enlarge</div>
-                    </div>
-                  ) : (
-                    <div style={{fontSize:'11px', color:'#94a3b8', fontStyle:'italic'}}>No attachment provided</div>
-                  )
+                )}
+                {!isAdmin && !otModal.isReadOnly && (
+                  <button
+                    type="submit"
+                    className="btn-submit-modal"
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      fontSize: '14px'
+                    }}
+                  >
+                    {otModal.isReapply ? 'Resubmit OT Application' : 'Submit OT Application'}
+                  </button>
                 )}
               </div>
-            )}
-
-            {otModal.isReapply && otModal.rejectionReason && (
-              <div style={{background:'#fff1f2', color:'#9f1239', padding:'8px', borderRadius:'6px', border:'1px solid #fecdd3', fontSize:'12px', marginBottom:'12px'}}>
-                <strong>Rejection Reason:</strong> {otModal.rejectionReason}
-              </div>
-            )}
-
-            <div className="modal-actions" style={{marginTop:'5px', display: 'flex', gap: '10px'}}>
-              {isAdmin && (otModal.status === 'Filed' || otModal.status === 'Refilled') && (
-                <>
-                  <button 
-                    className="btn-submit-modal" 
-                    onClick={() => approveOT(otModal.entryId, otModal.dateStr)}
-                    style={{flex: 1, padding:'8px', fontSize:'14px', background:'#2d8f7b', color:'#fff'}}
-                  >
-                    Approve OT
-                  </button>
-                  <button 
-                    className="btn-submit-modal" 
-                    onClick={() => rejectOT(otModal.entryId, otModal.dateStr)}
-                    style={{flex: 1, padding:'8px', fontSize:'14px', background:'#e85d5d', color:'#fff'}}
-                  >
-                    Reject OT
-                  </button>
-                </>
-              )}
-              {!isAdmin && !otModal.isReadOnly && (() => {
-                const hasChanged = !initialOtData || (
-                  otModal.reason !== initialOtData.reason ||
-                  otModal.clientApproved !== initialOtData.clientApproved ||
-                  otModal.clientApprovalFile !== initialOtData.clientApprovalFile
-                );
-                const isInitiallyFiled = initialOtData && (initialOtData.status === 'Filed' || initialOtData.status === 'Refilled');
-
-                if (isInitiallyFiled && !hasChanged && !otModal.timingsChanged) return null;
-
-                return (() => {
-                  // For resubmit: disabled unless the user has changed something from the initial loaded state
-                  // For fresh submit: disabled unless at least a reason OR an attachment is provided
-                  const isDisabled = otModal.isReapply
-                    ? !hasChanged
-                    : (!otModal.reason.trim() && !otModal.clientApprovalFile);
-
-                  return (
-                    <button
-                      className="btn-submit-modal"
-                      onClick={() => handleOTSubmit('Filed')}
-                      disabled={isDisabled}
-                      style={{
-                        opacity: isDisabled ? 0.6 : 1,
-                        cursor: isDisabled ? 'not-allowed' : 'pointer',
-                        pointerEvents: isDisabled ? 'none' : 'auto',
-                        width: '100%',
-                        padding: '8px',
-                        fontSize: '14px'
-                      }}
-                    >
-                      {otModal.isReapply ? 'Resubmit OT Application' : 'Submit OT Application'}
-                    </button>
-                  );
-                })();
-              })()}
-            </div>
+            </form>
           </div>
         </div>
       )}
@@ -2685,22 +2767,30 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           isOpen={rejectModal.isOpen} 
           title={rejectModal.isOT ? "Reject OT Request" : "Reject Timesheet Entry"} 
           onClose={() => setRejectModal({...rejectModal, isOpen: false})}
+          onSubmit={e => { e.preventDefault(); handleRejectSubmit(); }}
           actions={
             <>
-              <button className="btn-cancel" onClick={() => setRejectModal({...rejectModal, isOpen: false})}>Cancel</button>
-              <button className="btn-submit-modal" onClick={handleRejectSubmit} style={{background: '#e85d5d'}}>Submit Rejection</button>
+              <button className="btn-cancel" type="button" onClick={() => setRejectModal({...rejectModal, isOpen: false})}>Cancel</button>
+              <button className="btn-submit-modal" type="submit" style={{background: '#e85d5d'}}>Submit Rejection</button>
             </>
           }
         >
           <div style={{padding: '0 10px'}}>
             <label style={{display:'block', marginBottom:'8px', fontWeight:'bold'}}>Reason for Rejection <span style={{color:'#e11d48'}}>*</span></label>
             <textarea 
+              id="reject-reason"
               rows="4" 
               value={rejectModal.reason} 
-              onChange={e => setRejectModal({...rejectModal, reason: e.target.value})}
-              style={{width:'100%', padding:'10px', borderRadius:'4px', border:'1px solid #ccc'}}
+              onChange={e => setRejectModal({...rejectModal, reason: e.target.value, hasError: false})}
+              className={`form-input ${rejectModal.hasError ? 'invalid' : ''}`}
+              style={{width:'100%', padding:'10px', borderRadius:'4px', border: rejectModal.hasError ? '1.5px solid #ef4444' : '1px solid #ccc'}}
               placeholder="Please provide a reason for rejection..."
             />
+            {rejectModal.hasError && (
+              <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
+                Rejection reason is required.
+              </span>
+            )}
           </div>
         </Modal>
       )}
@@ -2710,21 +2800,29 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           isOpen={grantModal.isOpen} 
           title="Resubmission Access" 
           onClose={() => setGrantModal({...grantModal, isOpen: false})}
+          onSubmit={e => { e.preventDefault(); handleGrantResubmit(); }}
           actions={
             <>
-              <button className="btn-cancel" onClick={() => setGrantModal({...grantModal, isOpen: false})}>Close</button>
-              <button className="btn-submit-modal" onClick={handleGrantResubmit} style={{background: '#0d9488'}}>Submit</button>
+              <button className="btn-cancel" type="button" onClick={() => setGrantModal({...grantModal, isOpen: false})}>Close</button>
+              <button className="btn-submit-modal" type="submit" style={{background: '#0d9488'}}>Submit</button>
             </>
           }
         >
           <div style={{padding: '0 10px'}}>
             <label style={{display:'block', marginBottom:'8px', fontWeight:'bold'}}>Message <span style={{color:'#e11d48'}}>*</span></label>
             <textarea 
+              id="grant-message"
               rows="3" 
               value={grantModal.message} 
-              onChange={e => setGrantModal({...grantModal, message: e.target.value})}
-              style={{width:'100%', padding:'10px', borderRadius:'4px', border:'1px solid #ccc', resize: 'vertical'}}
+              onChange={e => setGrantModal({...grantModal, message: e.target.value, hasError: false})}
+              className={`form-input ${grantModal.hasError ? 'invalid' : ''}`}
+              style={{width:'100%', padding:'10px', borderRadius:'4px', border: grantModal.hasError ? '1.5px solid #ef4444' : '1px solid #ccc', resize: 'vertical'}}
             />
+            {grantModal.hasError && (
+              <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
+                Message is required.
+              </span>
+            )}
           </div>
         </Modal>
       )}
@@ -2968,155 +3066,163 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 </div>
               </div>
               <button
-                onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '' })}
+                type="button"
+                onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '', fromDateError: false, toDateError: false })}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', width: '30px', height: '30px', cursor: 'pointer', color: '#fff', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >×</button>
             </div>
 
-            {/* Modal Body */}
-            <div style={{ padding: '24px 24px 20px' }}>
-              <p style={{ margin: '0 0 20px', fontSize: '13.5px', color: '#64748b', lineHeight: '1.5' }}>
-                Select a date range to export. The Excel file will contain all timesheet entries within the selected range.
-              </p>
+            <form onSubmit={e => { e.preventDefault(); handleExportSubmit(); }} style={{ display: 'contents' }}>
+              {/* Modal Body */}
+              <div style={{ padding: '24px 24px 20px' }}>
+                <p style={{ margin: '0 0 20px', fontSize: '13.5px', color: '#64748b', lineHeight: '1.5' }}>
+                  Select a date range to export. The Excel file will contain all timesheet entries within the selected range.
+                </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                {/* From Date */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>From Date <span style={{color:'#e11d48'}}>*</span></label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="date"
-                      value={exportModal.fromDate}
-                      onChange={e => setExportModal(m => ({ ...m, fromDate: e.target.value, error: '' }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: '8px',
-                        border: exportModal.error && !exportModal.fromDate ? '1.5px solid #ef4444' : '1.5px solid #e2e8f0',
-                        fontSize: '13.5px', color: '#1a2744', background: '#f8fafc',
-                        outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
-                        transition: 'border-color 0.2s'
-                      }}
-                      onFocus={e => e.target.style.borderColor = '#2d8f7b'}
-                      onBlur={e => e.target.style.borderColor = exportModal.error && !exportModal.fromDate ? '#ef4444' : '#e2e8f0'}
-                    />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  {/* From Date */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>From Date <span style={{color:'#e11d48'}}>*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="date"
+                        id="export-from-date"
+                        className={`form-input ${exportModal.fromDateError ? 'invalid' : ''}`}
+                        value={exportModal.fromDate}
+                        onChange={e => setExportModal(m => ({ ...m, fromDate: e.target.value, error: '', fromDateError: false }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: '8px',
+                          border: exportModal.fromDateError ? '1.5px solid #ef4444' : '1.5px solid #e2e8f0',
+                          fontSize: '13.5px', color: '#1a2744', background: '#f8fafc',
+                          outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+                          transition: 'border-color 0.2s'
+                        }}
+                        onFocus={e => e.target.style.borderColor = '#2d8f7b'}
+                        onBlur={e => e.target.style.borderColor = exportModal.fromDateError ? '#ef4444' : '#e2e8f0'}
+                      />
+                    </div>
+                  </div>
+
+                  {/* To Date */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To Date <span style={{color:'#e11d48'}}>*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="date"
+                        id="export-to-date"
+                        className={`form-input ${exportModal.toDateError ? 'invalid' : ''}`}
+                        value={exportModal.toDate}
+                        min={exportModal.fromDate}
+                        onChange={e => setExportModal(m => ({ ...m, toDate: e.target.value, error: '', toDateError: false }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: '8px',
+                          border: exportModal.toDateError ? '1.5px solid #ef4444' : '1.5px solid #e2e8f0',
+                          fontSize: '13.5px', color: '#1a2744', background: '#f8fafc',
+                          outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+                          transition: 'border-color 0.2s'
+                        }}
+                        onFocus={e => e.target.style.borderColor = '#2d8f7b'}
+                        onBlur={e => e.target.style.borderColor = exportModal.toDateError ? '#ef4444' : '#e2e8f0'}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* To Date */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>To Date <span style={{color:'#e11d48'}}>*</span></label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="date"
-                      value={exportModal.toDate}
-                      min={exportModal.fromDate}
-                      onChange={e => setExportModal(m => ({ ...m, toDate: e.target.value, error: '' }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: '8px',
-                        border: exportModal.error && !exportModal.toDate ? '1.5px solid #ef4444' : '1.5px solid #e2e8f0',
-                        fontSize: '13.5px', color: '#1a2744', background: '#f8fafc',
-                        outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
-                        transition: 'border-color 0.2s'
-                      }}
-                      onFocus={e => e.target.style.borderColor = '#2d8f7b'}
-                      onBlur={e => e.target.style.borderColor = exportModal.error && !exportModal.toDate ? '#ef4444' : '#e2e8f0'}
-                    />
+                {/* Preview pill */}
+                {exportModal.fromDate && exportModal.toDate && exportModal.fromDate <= exportModal.toDate && (() => {
+                  const from = new Date(exportModal.fromDate);
+                  const to = new Date(exportModal.toDate);
+                  const diffDays = Math.round((to - from) / (1000 * 60 * 60 * 24)) + 1;
+                  return (
+                    <div style={{
+                      background: 'linear-gradient(135deg, #e8f5f2 0%, #dbeafe 100%)',
+                      border: '1px solid #a7f3d0', borderRadius: '8px',
+                      padding: '10px 14px', marginBottom: '16px',
+                      display: 'flex', alignItems: 'center', gap: '8px'
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2d8f7b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                      </svg>
+                      <span style={{ fontSize: '12.5px', color: '#065f46', fontWeight: '600' }}>
+                        {diffDays} day{diffDays !== 1 ? 's' : ''} selected
+                      </span>
+                      <span style={{ fontSize: '11.5px', color: '#047857', marginLeft: 'auto', fontFamily: 'monospace' }}>
+                        {getExportFilename(employee.name, employee.empId, exportModal.fromDate, exportModal.toDate)}
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {/* Error message */}
+                {exportModal.error && (
+                  <div style={{
+                    background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px',
+                    padding: '10px 14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <span style={{ fontSize: '12.5px', color: '#dc2626', fontWeight: '500' }}>{exportModal.error}</span>
                   </div>
-                </div>
+                )}
               </div>
 
-              {/* Preview pill */}
-              {exportModal.fromDate && exportModal.toDate && exportModal.fromDate <= exportModal.toDate && (() => {
-                const from = new Date(exportModal.fromDate);
-                const to = new Date(exportModal.toDate);
-                const diffDays = Math.round((to - from) / (1000 * 60 * 60 * 24)) + 1;
-                return (
-                  <div style={{
-                    background: 'linear-gradient(135deg, #e8f5f2 0%, #dbeafe 100%)',
-                    border: '1px solid #a7f3d0', borderRadius: '8px',
-                    padding: '10px 14px', marginBottom: '16px',
-                    display: 'flex', alignItems: 'center', gap: '8px'
-                  }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2d8f7b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                      <line x1="16" y1="2" x2="16" y2="6"></line>
-                      <line x1="8" y1="2" x2="8" y2="6"></line>
-                      <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                    <span style={{ fontSize: '12.5px', color: '#065f46', fontWeight: '600' }}>
-                      {diffDays} day{diffDays !== 1 ? 's' : ''} selected
-                    </span>
-                    <span style={{ fontSize: '11.5px', color: '#047857', marginLeft: 'auto', fontFamily: 'monospace' }}>
-                      {getExportFilename(employee.name, employee.empId, exportModal.fromDate, exportModal.toDate)}
-                    </span>
-                  </div>
-                );
-              })()}
-
-              {/* Error message */}
-              {exportModal.error && (
-                <div style={{
-                  background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px',
-                  padding: '10px 14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="8" x2="12" y2="12"></line>
-                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                  </svg>
-                  <span style={{ fontSize: '12.5px', color: '#dc2626', fontWeight: '500' }}>{exportModal.error}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div style={{
-              padding: '16px 24px 20px', display: 'flex', gap: '12px',
-              borderTop: '1px solid #f1f5f9', background: '#fafafa'
-            }}>
-              <button
-                onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '' })}
-                disabled={exportModal.isLoading}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: '8px',
-                  border: '1.5px solid #e2e8f0', background: '#fff',
-                  color: '#475569', fontSize: '13.5px', fontWeight: '600',
-                  cursor: exportModal.isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s'
-                }}
-              >Cancel</button>
-              <button
-                onClick={handleExportSubmit}
-                disabled={exportModal.isLoading}
-                style={{
-                  flex: 2, padding: '10px', borderRadius: '8px', border: 'none',
-                  background: exportModal.isLoading
-                    ? 'linear-gradient(135deg, #94a3b8 0%, #94a3b8 100%)'
-                    : 'linear-gradient(135deg, #1a2744 0%, #2d8f7b 100%)',
-                  color: '#fff', fontSize: '13.5px', fontWeight: '700',
-                  cursor: exportModal.isLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                  boxShadow: exportModal.isLoading ? 'none' : '0 2px 8px rgba(45,143,123,0.35)',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {exportModal.isLoading ? (
-                  <>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                    </svg>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                      <polyline points="7 10 12 15 17 10"></polyline>
-                      <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                    Download Excel
-                  </>
-                )}
-              </button>
-            </div>
+              {/* Modal Footer */}
+              <div style={{
+                padding: '16px 24px 20px', display: 'flex', gap: '12px',
+                borderTop: '1px solid #f1f5f9', background: '#fafafa'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '', fromDateError: false, toDateError: false })}
+                  disabled={exportModal.isLoading}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: '8px',
+                    border: '1.5px solid #e2e8f0', background: '#fff',
+                    color: '#475569', fontSize: '13.5px', fontWeight: '600',
+                    cursor: exportModal.isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s'
+                  }}
+                >Cancel</button>
+                <button
+                  type="submit"
+                  disabled={exportModal.isLoading}
+                  style={{
+                    flex: 2, padding: '10px', borderRadius: '8px', border: 'none',
+                    background: exportModal.isLoading
+                      ? 'linear-gradient(135deg, #94a3b8 0%, #94a3b8 100%)'
+                      : 'linear-gradient(135deg, #1a2744 0%, #2d8f7b 100%)',
+                    color: '#fff', fontSize: '13.5px', fontWeight: '700',
+                    cursor: exportModal.isLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                    boxShadow: exportModal.isLoading ? 'none' : '0 2px 8px rgba(45,143,123,0.35)',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {exportModal.isLoading ? (
+                    <>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                      Download Excel
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -3267,7 +3373,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 )}
               </>
             ) : (
-              <>
+              <form onSubmit={e => { e.preventDefault(); handleSaveProfile(); }} style={{ display: 'contents' }}>
                 <div className="modal-sub" style={{ flexShrink: 0, marginBottom: '20px' }}>Fill in the employee details below.</div>
                 {/* Edit Form Fields */}
                 <div className="add-emp-form" style={{ overflowY: 'auto', flex: 1, paddingRight: '6px' }}>
@@ -3557,6 +3663,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
                   <div className="modal-actions" style={{ marginTop: '20px' }}>
                     <button
+                      type="button"
                       className="btn-cancel"
                       onClick={async () => {
                         if (isProfileDirty()) {
@@ -3578,8 +3685,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                       Cancel
                     </button>
                     <button
+                      type="submit"
                       className="btn-submit-modal"
-                      onClick={handleSaveProfile}
                       disabled={isSavingProfile || isCheckingEmail || isCheckingContactProfile}
                       style={{ flex: 1, opacity: (isSavingProfile || isCheckingEmail) ? 0.7 : 1, cursor: (isSavingProfile || isCheckingEmail) ? 'not-allowed' : 'pointer' }}
                     >
@@ -3587,7 +3694,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                     </button>
                   </div>
                 </div>
-              </>
+              </form>
             )}
           </div>
         </div>
@@ -3687,22 +3794,32 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   );
 }
 
-const Modal = ({ isOpen, title, onClose, children, actions }) => {
+const Modal = ({ isOpen, title, onClose, children, actions, onSubmit }) => {
   if (!isOpen) return null;
+  const content = (
+    <div className="modal" style={{ width: '400px' }}>
+      <div className="modal-header">
+        <h3>{title}</h3>
+        <button className="modal-close" type="button" onClick={onClose}>×</button>
+      </div>
+      <div className="modal-body" style={{ padding: '20px 0' }}>
+        {children}
+      </div>
+      <div className="modal-actions">
+        {actions}
+      </div>
+    </div>
+  );
+
   return (
     <div className="modal-overlay open">
-      <div className="modal" style={{ width: '400px' }}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button className="modal-close" onClick={onClose}>×</button>
-        </div>
-        <div className="modal-body" style={{ padding: '20px 0' }}>
-          {children}
-        </div>
-        <div className="modal-actions">
-          {actions}
-        </div>
-      </div>
+      {onSubmit ? (
+        <form onSubmit={onSubmit} style={{ display: 'contents' }}>
+          {content}
+        </form>
+      ) : (
+        content
+      )}
     </div>
   );
 };

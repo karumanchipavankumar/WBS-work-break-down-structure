@@ -3,9 +3,10 @@ import { AuthContext } from './AuthContext';
 import Login from './Login';
 import Dashboard from './Dashboard';
 import ResetOneTimePassword from './ResetOneTimePassword';
+import AppModal from './AppModals';
 
 function App() {
-  const { user, logout, loading } = useContext(AuthContext);
+  const { user, logout, loading, isSessionExpired, setIsSessionExpired } = useContext(AuthContext);
   const [forceLoginView, setForceLoginView] = useState(false);
 
   // Check URL query string for resetToken setup links
@@ -52,20 +53,32 @@ function App() {
     );
   }
 
-  if (resetToken && !forceLoginView) {
-    return (
-      <ResetOneTimePassword 
-        token={resetToken} 
-        onBackToLogin={() => setForceLoginView(true)} 
-      />
-    );
-  }
-
-  if (!user) {
-    return <Login />;
-  }
-
-  return <Dashboard />;
+  return (
+    <>
+      {resetToken && !forceLoginView ? (
+        <ResetOneTimePassword 
+          token={resetToken} 
+          onBackToLogin={() => setForceLoginView(true)} 
+        />
+      ) : !user ? (
+        <Login />
+      ) : (
+        <Dashboard />
+      )}
+      {isSessionExpired && (
+        <AppModal
+          type="alert"
+          title="Session Timed Out"
+          message="Your session has expired due to inactivity. Please log in again to continue."
+          confirmLabel="Login Again"
+          onConfirm={() => {
+            setIsSessionExpired(false);
+            logout();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 export default App;

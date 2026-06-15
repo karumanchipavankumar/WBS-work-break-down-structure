@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useState, useEffect, useRef } from 'react';
 import { AuthContext } from './AuthContext';
 import api from './api';
 import { showAlert } from './AppModals';
@@ -10,6 +10,21 @@ export default function Login() {
   const [pass, setPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [userIdError, setUserIdError] = useState(false);
+  const [passwordError, setPasswordError] = useState(false);
+  
+  const [recoveryInputError, setRecoveryInputError] = useState(false);
+  const [resetCodeError, setResetCodeError] = useState(false);
+  const [newPassError, setNewPassError] = useState(false);
+  const [confirmPassError, setConfirmPassError] = useState(false);
+
+  const empIdRef = useRef(null);
+  const passRef = useRef(null);
+  const recoveryInputRef = useRef(null);
+  const resetCodeRef = useRef(null);
+  const newPassRef = useRef(null);
+  const confirmPassRef = useRef(null);
+
   // Banner message set by api.js when an existing session is invalidated after a password change
   const [authMessage, setAuthMessage] = useState(() => {
     const msg = sessionStorage.getItem('auth_message');
@@ -100,9 +115,44 @@ export default function Login() {
   };
 
   const submit = async () => {
+    setUserIdError(false);
+    setPasswordError(false);
+
+    const isEmpIdEmpty = !empId || !empId.trim();
+    const isPassEmpty = !pass || !pass.trim();
+
+    if (isEmpIdEmpty && isPassEmpty) {
+      setError('Please fill in all required fields.');
+      setUserIdError(true);
+      setPasswordError(true);
+      if (empIdRef.current) empIdRef.current.focus();
+      return;
+    }
+
+    if (isEmpIdEmpty) {
+      setError('Please enter your User ID.');
+      setUserIdError(true);
+      if (empIdRef.current) empIdRef.current.focus();
+      return;
+    }
+
+    if (isPassEmpty) {
+      setError('Please enter your Password.');
+      setPasswordError(true);
+      if (passRef.current) passRef.current.focus();
+      return;
+    }
+
     const err = validate();
     if (err) {
       setError(err);
+      if (pass.length < 6 || pass.length > 20 || pass.trim().length === 0) {
+        setPasswordError(true);
+        if (passRef.current) passRef.current.focus();
+      } else {
+        setUserIdError(true);
+        if (empIdRef.current) empIdRef.current.focus();
+      }
       return;
     }
 
@@ -128,9 +178,12 @@ export default function Login() {
   };
 
   const handleForgot = async () => {
+    setRecoveryInputError(false);
     const check = validateRecoveryInput(recoveryInput);
     if (!check.isValid) {
       setError(check.message);
+      setRecoveryInputError(true);
+      if (recoveryInputRef.current) recoveryInputRef.current.focus();
       return;
     }
     setError('');
@@ -143,22 +196,46 @@ export default function Login() {
     } catch (e) {
       const errorMsg = e.response?.data?.message || e.message || 'Error sending reset code';
       setError(errorMsg);
+      setRecoveryInputError(true);
+      if (recoveryInputRef.current) recoveryInputRef.current.focus();
     } finally {
       setResetLoading(false);
     }
   };
 
   const handleReset = async () => {
-    if (!resetCode || !newPass || !confirmPass) {
-      setError('Please enter the verification code and both passwords.');
+    setResetCodeError(false);
+    setNewPassError(false);
+    setConfirmPassError(false);
+
+    if (!resetCode || !resetCode.trim()) {
+      setError('Please enter the verification code.');
+      setResetCodeError(true);
+      if (resetCodeRef.current) resetCodeRef.current.focus();
       return;
     }
-    if (newPass !== confirmPass) {
-      setError('Passwords do not match.');
+    if (!newPass || !newPass.trim()) {
+      setError('Please enter your new password.');
+      setNewPassError(true);
+      if (newPassRef.current) newPassRef.current.focus();
+      return;
+    }
+    if (!confirmPass || !confirmPass.trim()) {
+      setError('Please confirm your new password.');
+      setConfirmPassError(true);
+      if (confirmPassRef.current) confirmPassRef.current.focus();
       return;
     }
     if (newPass.length < 6) {
       setError('Password must be at least 6 characters.');
+      setNewPassError(true);
+      if (newPassRef.current) newPassRef.current.focus();
+      return;
+    }
+    if (newPass !== confirmPass) {
+      setError('Passwords do not match.');
+      setConfirmPassError(true);
+      if (confirmPassRef.current) confirmPassRef.current.focus();
       return;
     }
     setError('');
@@ -179,6 +256,17 @@ export default function Login() {
     } catch (e) {
       const errorMsg = e.response?.data?.message || e.message || 'Reset failed';
       setError(errorMsg);
+      if (errorMsg.includes('history') || errorMsg.includes('previous') || errorMsg.includes('reuse') || errorMsg.includes('last 3')) {
+        setNewPassError(true);
+        setConfirmPassError(true);
+        if (newPassRef.current) newPassRef.current.focus();
+      } else if (errorMsg.includes('code') || errorMsg.includes('Verification')) {
+        setResetCodeError(true);
+        if (resetCodeRef.current) resetCodeRef.current.focus();
+      } else {
+        setNewPassError(true);
+        if (newPassRef.current) newPassRef.current.focus();
+      }
     } finally {
       setResetLoading(false);
     }
@@ -206,43 +294,46 @@ export default function Login() {
           {error && <div className="login-error-alert" style={{ color: '#d32f2f', backgroundColor: '#ffebee', padding: '10px', borderRadius: '4px', fontSize: '13px', marginBottom: '15px', textAlign: 'center', border: '1px solid #ffcdd2' }}>{error}</div>}
 
           {resetStep === 1 ? (
-            <div>
+            <form onSubmit={e => { e.preventDefault(); handleForgot(); }}>
               <div className="form-group">
                 <label className="form-label">Registered Email Address <span style={{color:'#e11d48'}}>*</span></label>
                 <input 
-                  className="form-input" 
+                  ref={recoveryInputRef}
+                  className={`form-input ${recoveryInputError ? 'invalid' : ''}`} 
                   value={recoveryInput} 
-                  onChange={e => { setRecoveryInput(e.target.value); setError(''); }} 
+                  onChange={e => { setRecoveryInput(e.target.value); setError(''); setRecoveryInputError(false); }} 
                   type="email" 
                   placeholder="e.g. name@company.com" 
                   disabled={resetLoading} 
                 />
               </div>
               <button 
+                type="submit"
                 className="btn-login" 
-                style={{ marginTop: '10px', opacity: (resetLoading || !recoveryInput.trim()) ? 0.7 : 1, cursor: (resetLoading || !recoveryInput.trim()) ? 'not-allowed' : 'pointer' }} 
-                onClick={handleForgot}
-                disabled={resetLoading || !recoveryInput.trim()}
+                style={{ marginTop: '10px', disabled: resetLoading }} 
+                disabled={resetLoading}
               >
                 {resetLoading ? 'Sending OTP...' : 'Send Verification OTP →'}
               </button>
               <div style={{ textAlign: 'center', marginTop: '20px' }}>
                 <button 
-                  onClick={() => { setShowForgot(false); setResetStep(1); setError(''); }} 
+                  type="button"
+                  onClick={() => { setShowForgot(false); setResetStep(1); setError(''); setRecoveryInputError(false); }} 
                   style={{ background: 'none', border: 'none', color: '#455fa0', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}
                 >
                   Back to Login
                 </button>
               </div>
-            </div>
+            </form>
           ) : (
-            <div>
+            <form onSubmit={e => { e.preventDefault(); handleReset(); }}>
               <div className="form-group">
                 <label className="form-label">Verification Code (OTP) <span style={{color:'#e11d48'}}>*</span></label>
                 <input 
-                  className="form-input" 
+                  ref={resetCodeRef}
+                  className={`form-input ${resetCodeError ? 'invalid' : ''}`} 
                   value={resetCode} 
-                  onChange={e => { setResetCode(e.target.value); setError(''); }} 
+                  onChange={e => { setResetCode(e.target.value); setError(''); setResetCodeError(false); }} 
                   type="text" 
                   placeholder="6-digit code" 
                   disabled={resetLoading} 
@@ -254,9 +345,10 @@ export default function Login() {
                 <label className="form-label">New Password <span style={{color:'#e11d48'}}>*</span></label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input 
-                    className="form-input" 
+                    ref={newPassRef}
+                    className={`form-input ${newPassError ? 'invalid' : ''}`} 
                     value={newPass} 
-                    onChange={e => { setNewPass(e.target.value); setError(''); }} 
+                    onChange={e => { setNewPass(e.target.value); setError(''); setNewPassError(false); }} 
                     type={showNewPass ? "text" : "password"} 
                     placeholder="Min 6 characters" 
                     style={{ paddingRight: '45px', width: '100%', boxSizing: 'border-box' }}
@@ -289,9 +381,10 @@ export default function Login() {
                 <label className="form-label">Confirm Password <span style={{color:'#e11d48'}}>*</span></label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input 
-                    className="form-input" 
+                    ref={confirmPassRef}
+                    className={`form-input ${confirmPassError ? 'invalid' : ''}`} 
                     value={confirmPass} 
-                    onChange={e => { setConfirmPass(e.target.value); setError(''); }} 
+                    onChange={e => { setConfirmPass(e.target.value); setError(''); setConfirmPassError(false); }} 
                     type={showConfirmPass ? "text" : "password"} 
                     placeholder="Confirm new password" 
                     style={{ paddingRight: '45px', width: '100%', boxSizing: 'border-box' }}
@@ -321,16 +414,17 @@ export default function Login() {
               </div>
 
               <button 
+                type="submit"
                 className="btn-login" 
-                style={{ opacity: (resetLoading || !resetCode || !newPass || !confirmPass) ? 0.7 : 1, cursor: (resetLoading || !resetCode || !newPass || !confirmPass) ? 'not-allowed' : 'pointer' }} 
-                onClick={handleReset}
-                disabled={resetLoading || !resetCode || !newPass || !confirmPass}
+                style={{ disabled: resetLoading }} 
+                disabled={resetLoading}
               >
                 {resetLoading ? 'Updating Password...' : 'Reset Password'}
               </button>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
                 <button 
+                  type="button"
                   onClick={handleForgot} 
                   disabled={resetLoading || resendTimer > 0} 
                   style={{
@@ -341,14 +435,15 @@ export default function Login() {
                 </button>
 
                 <button 
-                  onClick={() => { setResetStep(1); setError(''); }} 
+                  type="button"
+                  onClick={() => { setResetStep(1); setError(''); setResetCodeError(false); setNewPassError(false); setConfirmPassError(false); }} 
                   disabled={resetLoading} 
                   style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '13px', cursor: resetLoading ? 'not-allowed' : 'pointer' }}
                 >
                   Back
                 </button>
               </div>
-            </div>
+            </form>
           )}
         </div>
       </div>
@@ -357,7 +452,7 @@ export default function Login() {
 
   return (
     <div className="login-screen">
-      <div className="login-card">
+      <form onSubmit={e => { e.preventDefault(); submit(); }} className="login-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '28px', gap: '12px' }}>
           <img src={logoSrc} alt="Folks Ideal Logo" style={{ height: '22px', objectFit: 'contain' }} />
           <span style={{ fontSize: '26px', fontWeight: 'bold', color: '#1f3360' }}>Smart Time Entry</span>
@@ -393,9 +488,10 @@ export default function Login() {
         <div className="form-group">
           <label className="form-label">Employee ID or Email <span style={{color:'#e11d48'}}>*</span></label>
           <input 
-            className={`form-input ${error && !empId ? 'invalid' : ''}`} 
+            ref={empIdRef}
+            className={`form-input ${userIdError ? 'invalid' : ''}`} 
             value={empId} 
-            onChange={e => { setEmpId(e.target.value); setError(''); }} 
+            onChange={e => { setEmpId(e.target.value); setError(''); setUserIdError(false); }} 
             type="text" 
             placeholder="Enter ID or Email"
             autoComplete="off"
@@ -405,9 +501,10 @@ export default function Login() {
           <label className="form-label">Password <span style={{color:'#e11d48'}}>*</span></label>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <input 
-              className={`form-input ${error && pass.length < 6 ? 'invalid' : ''}`} 
+              ref={passRef}
+              className={`form-input ${passwordError ? 'invalid' : ''}`} 
               value={pass} 
-              onChange={e => { setPass(e.target.value); setError(''); }} 
+              onChange={e => { setPass(e.target.value); setError(''); setPasswordError(false); }} 
               type={showPassword ? "text" : "password"} 
               placeholder="Enter Password"
               style={{ paddingRight: '45px', width: '100%', boxSizing: 'border-box' }}
@@ -445,12 +542,12 @@ export default function Login() {
           </div>
         </div>
         <div style={{ textAlign: 'right', marginBottom: '15px' }}>
-          <button onClick={() => setShowForgot(true)} style={{ background: 'none', border: 'none', color: '#455fa0', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>Forgot Password?</button>
+          <button type="button" onClick={() => setShowForgot(true)} style={{ background: 'none', border: 'none', color: '#455fa0', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>Forgot Password?</button>
         </div>
-        <button className="btn-login" onClick={submit} disabled={loading || !empId || !pass}>
+        <button type="submit" className="btn-login" disabled={loading}>
           {loading ? 'Signing In...' : 'Sign In →'}
         </button>
-      </div>
+      </form>
     </div>
   );
 }
