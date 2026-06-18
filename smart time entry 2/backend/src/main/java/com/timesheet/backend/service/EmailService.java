@@ -59,6 +59,19 @@ public class EmailService {
                     "If you did not request this, please ignore this email.\n\n" +
                     "Best Regards,\nSmart Time Entry Team");
 
+            try {
+    java.net.Socket socket = new java.net.Socket();
+    socket.connect(
+            new java.net.InetSocketAddress("smtp.gmail.com", 587),
+            10000
+    );
+    logger.info("SMTP CONNECTION SUCCESS");
+    socket.close();
+} catch (Exception ex) {
+    logger.error("SMTP CONNECTION FAILED", ex);
+}
+
+
             mailSender.send(message);
             logger.info("Password reset code email sent successfully to: {}", email);
         } catch (Exception e) {
