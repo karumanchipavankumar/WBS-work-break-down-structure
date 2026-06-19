@@ -18,6 +18,12 @@ public class EmailService {
     @Autowired
     private JavaMailSender mailSender;
 
+    @Value("${spring.mail.host}")
+    private String mailHost;
+
+    @Value("${spring.mail.port:587}")
+    private int mailPort;
+
     @Value("${spring.mail.from}")
     private String fromEmail;
 
@@ -60,16 +66,16 @@ public class EmailService {
                     "Best Regards,\nSmart Time Entry Team");
 
             try {
-    java.net.Socket socket = new java.net.Socket();
-    socket.connect(
-            new java.net.InetSocketAddress("smtp.gmail.com", 587),
-            10000
-    );
-    logger.info("SMTP CONNECTION SUCCESS");
-    socket.close();
-} catch (Exception ex) {
-    logger.error("SMTP CONNECTION FAILED", ex);
-}
+                java.net.Socket socket = new java.net.Socket();
+                socket.connect(
+                        new java.net.InetSocketAddress(mailHost, mailPort),
+                        10000
+                );
+                logger.info("SMTP CONNECTION SUCCESS to {}:{}", mailHost, mailPort);
+                socket.close();
+            } catch (Exception ex) {
+                logger.error("SMTP CONNECTION FAILED to {}:{}", mailHost, mailPort, ex);
+            }
 
 
             mailSender.send(message);
