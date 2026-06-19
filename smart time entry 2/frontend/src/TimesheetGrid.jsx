@@ -1441,12 +1441,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleOTSubmit = async (status) => {
     const formattedReason = formatReasonText(otModal.reason);
+    const formattedRemarks = formatReasonText(otModal.remarks || '');
     if (!formattedReason || formattedReason.trim() === '') {
       setOtModal(prev => ({ ...prev, hasError: true }));
       setTimeout(() => {
         const el = document.getElementById("ot-reason");
         if (el) el.focus();
       }, 50);
+      return;
+    }
+    if (!otModal.clientApproved) {
       return;
     }
 
@@ -2544,7 +2548,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
       {otModal.isOpen && (
         <div className="modal-overlay open">
-          <div className="modal" style={{maxWidth: '450px', padding: '15px'}}>
+          <div className="modal no-scrollbar" style={{maxWidth: '450px', padding: '15px', maxHeight: '90vh', overflowY: 'auto'}}>
             <div className="modal-header" style={{marginBottom: '12px'}}>
               <h3 style={{fontSize:'18px', color:'#1e293b'}}>OT Application Details</h3>
               <button className="modal-close" type="button" onClick={handleCloseOtModal}>&times;</button>
@@ -2711,34 +2715,27 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               )}
 
               <div className="modal-actions" style={{marginTop:'5px', display: 'flex', gap: '10px'}}>
-                {isAdmin && (otModal.status === 'Filed' || otModal.status === 'Refilled') && (
-                  <>
-                    <button 
-                      type="button"
-                      className="btn-submit-modal" 
-                      onClick={() => approveOT(otModal.entryId, otModal.dateStr)}
-                      style={{flex: 1, padding:'8px', fontSize:'14px', background:'#2d8f7b', color:'#fff'}}
-                    >
-                      Approve OT
-                    </button>
-                    <button 
-                      type="button"
-                      className="btn-submit-modal" 
-                      onClick={() => rejectOT(otModal.entryId, otModal.dateStr)}
-                      style={{flex: 1, padding:'8px', fontSize:'14px', background:'#e85d5d', color:'#fff'}}
-                    >
-                      Reject OT
-                    </button>
-                  </>
+                {(isAdmin || otModal.isReadOnly) && (
+                  <button 
+                    type="button"
+                    className="btn-cancel" 
+                    onClick={handleCloseOtModal}
+                    style={{width: '100%', padding: '8px', fontSize: '14px'}}
+                  >
+                    Close
+                  </button>
                 )}
                 {!isAdmin && !otModal.isReadOnly && (
                   <button
                     type="submit"
                     className="btn-submit-modal"
+                    disabled={!otModal.reason || !otModal.reason.trim() || !otModal.clientApproved || (otModal.isReapply && !isOtFormDirty())}
                     style={{
                       width: '100%',
                       padding: '8px',
-                      fontSize: '14px'
+                      fontSize: '14px',
+                      opacity: (!otModal.reason || !otModal.reason.trim() || !otModal.clientApproved || (otModal.isReapply && !isOtFormDirty())) ? 0.6 : 1,
+                      cursor: (!otModal.reason || !otModal.reason.trim() || !otModal.clientApproved || (otModal.isReapply && !isOtFormDirty())) ? 'not-allowed' : 'pointer'
                     }}
                   >
                     {otModal.isReapply ? 'Resubmit OT Application' : 'Submit OT Application'}
