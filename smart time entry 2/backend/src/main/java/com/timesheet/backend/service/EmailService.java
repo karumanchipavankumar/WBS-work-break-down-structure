@@ -126,16 +126,20 @@ public class EmailService {
     public void sendOneTimePasswordResetLink(User employee, String rawPassword, String token) {
         String subject = "Welcome to Ideal Folks - Your Account Credentials & Setup";
         String urlBase = clientUrl.endsWith("/") ? clientUrl : clientUrl + "/";
-        String text = "Welcome " + employee.getName() + ",\n\n" +
-                "Your account has been created successfully.\n\n" +
-                "Login ID: " + employee.getEmpId() + "\n" +
-                "Temporary Password: " + rawPassword + "\n\n" +
-                "As a new user, you must set up your password. Please use the following one-time secure link to set your password:\n" +
-                urlBase + "?resetToken=" + token + "\n\n" +
-                "Note: This secure link is single-use and will only work once until the password is reset by you.\n\n" +
-                "Best Regards,\nIdeal Folks Team";
+        String linkUrl = urlBase + "?resetToken=" + token;
 
-        sendViaBrevo(employee.getEmail(), employee.getName(), subject, text, false);
+        String htmlContent = "<html><body>" +
+                "<p>Welcome " + employee.getName() + ",</p>" +
+                "<p>Your account has been created successfully.</p>" +
+                "<p><strong>Login ID:</strong> " + employee.getEmpId() + "<br/>" +
+                "<strong>Temporary Password:</strong> " + rawPassword + "</p>" +
+                "<p>As a new user, you must set up your password. Please use the following one-time secure link to set your password:<br/>" +
+                "<a href=\"" + linkUrl + "\" style=\"color: #0066cc; text-decoration: underline;\">" + linkUrl + "</a></p>" +
+                "<p><em>Note: This secure link is single-use and will only work once until the password is reset by you.</em></p>" +
+                "<p>Best Regards,<br/>Ideal Folks Team</p>" +
+                "</body></html>";
+
+        sendViaBrevo(employee.getEmail(), employee.getName(), subject, htmlContent, true);
     }
 
     @Async
