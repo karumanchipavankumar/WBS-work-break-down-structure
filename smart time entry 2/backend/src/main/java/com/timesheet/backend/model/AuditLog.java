@@ -39,7 +39,7 @@ public class AuditLog {
     @Column(name = "new_values", length = 1000)
     private String newValues;
 
-    @Column(name = "reason", length = 255)
+    @Column(name = "reason", length = 1000)
     private String reason;
 
     @Column(name = "comments", length = 1000)

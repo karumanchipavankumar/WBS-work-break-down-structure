@@ -50,48 +50,146 @@ public class TimesheetController {
 
         String type = entry.getType();
         if (type == null || type.trim().isEmpty()) {
-            if (entry.getDayOfWeek() != null && (entry.getDayOfWeek() == 0 || entry.getDayOfWeek() == 6)) {
+            boolean checkWknd = false;
+            if (entry.getDate() != null) {
+                try {
+                    java.time.LocalDate d = java.time.LocalDate.parse(entry.getDate());
+                    int day = d.getDayOfWeek().getValue();
+                    checkWknd = day == 6 || day == 7;
+                } catch (Exception e) {
+                    // ignore
+                }
+            }
+            if (!checkWknd && entry.getDayOfWeek() != null) {
+                checkWknd = entry.getDayOfWeek() == 0 || entry.getDayOfWeek() == 6;
+            }
+
+            if (checkWknd) {
                 type = "Week Off";
             } else {
                 type = "Working Day";
             }
         }
 
-        if ("Working Day".equalsIgnoreCase(type) || "WFH".equalsIgnoreCase(type)) {
-            if (entry.getAmIn() == null || entry.getAmIn().trim().isEmpty() ||
-                entry.getAmOut() == null || entry.getAmOut().trim().isEmpty() ||
-                entry.getLunchOut() == null || entry.getLunchOut().trim().isEmpty() ||
-                entry.getLunchIn() == null || entry.getLunchIn().trim().isEmpty() ||
-                entry.getPmIn() == null || entry.getPmIn().trim().isEmpty() ||
-                entry.getPmOut() == null || entry.getPmOut().trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("All time fields must be filled");
+        boolean isWknd = false;
+        if (entry.getDate() != null) {
+            try {
+                java.time.LocalDate d = java.time.LocalDate.parse(entry.getDate());
+                int day = d.getDayOfWeek().getValue(); // 1 = Monday, 7 = Sunday
+                isWknd = day == 6 || day == 7;
+            } catch (Exception e) {
+                // ignore
             }
+        }
+        if (!isWknd && entry.getDayOfWeek() != null) {
+            isWknd = entry.getDayOfWeek() == 0 || entry.getDayOfWeek() == 6;
+        }
+        boolean isWeekendOrHoliday = isWknd || "Holiday".equalsIgnoreCase(type);
 
-            Integer amIn = parseTime(entry.getAmIn());
-            Integer amOut = parseTime(entry.getAmOut());
-            Integer lunchOut = parseTime(entry.getLunchOut());
-            Integer lunchIn = parseTime(entry.getLunchIn());
-            Integer pmIn = parseTime(entry.getPmIn());
-            Integer pmOut = parseTime(entry.getPmOut());
+        System.out.println("DEBUG TIMESHEET: date=" + entry.getDate() + ", type=" + type + ", dayOfWeek=" + entry.getDayOfWeek() + ", isWknd=" + isWknd + ", isWeekendOrHoliday=" + isWeekendOrHoliday);
 
-            if (amIn == null || amOut == null || lunchOut == null || lunchIn == null || pmIn == null || pmOut == null) {
-                return ResponseEntity.badRequest().body("Invalid time format");
-            }
+        if ("Working Day".equalsIgnoreCase(type) || "WFH".equalsIgnoreCase(type) || "Holiday".equalsIgnoreCase(type)) {
+            boolean hasAmIn = entry.getAmIn() != null && !entry.getAmIn().trim().isEmpty();
+            boolean hasAmOut = entry.getAmOut() != null && !entry.getAmOut().trim().isEmpty();
+            boolean hasLunchOut = entry.getLunchOut() != null && !entry.getLunchOut().trim().isEmpty();
+            boolean hasLunchIn = entry.getLunchIn() != null && !entry.getLunchIn().trim().isEmpty();
+            boolean hasPmIn = entry.getPmIn() != null && !entry.getPmIn().trim().isEmpty();
+            boolean hasPmOut = entry.getPmOut() != null && !entry.getPmOut().trim().isEmpty();
+            boolean hasAny = hasAmIn || hasAmOut || hasLunchOut || hasLunchIn || hasPmIn || hasPmOut;
 
-            if (amOut <= amIn) {
-                return ResponseEntity.badRequest().body("AM Out must be later than AM In");
-            }
-            if (!amOut.equals(lunchOut)) {
-                return ResponseEntity.badRequest().body("There should be no time gap between AM Out and Lunch Out");
-            }
-            if (lunchIn - lunchOut != 60) {
-                return ResponseEntity.badRequest().body("Lunch break must be exactly one hour");
-            }
-            if (!lunchIn.equals(pmIn)) {
-                return ResponseEntity.badRequest().body("Lunch In and PM In should not have any time gap");
-            }
-            if (pmOut <= pmIn) {
-                return ResponseEntity.badRequest().body("PM Out must be later than PM In");
+            if (isWeekendOrHoliday) {
+                if ("Holiday".equalsIgnoreCase(type) && !hasAny) {
+                    // Holiday with no times is allowed
+                } else {
+                    boolean hasAm = hasAmIn && hasAmOut;
+                    boolean hasPm = hasPmIn && hasPmOut;
+                    if (!hasAm && !hasPm) {
+                        return ResponseEntity.badRequest().body("Either AM In/Out or PM In/Out must be completely filled to submit working hours");
+                    }
+                    
+                    if ((hasAmIn && !hasAmOut) || (!hasAmIn && hasAmOut)) {
+                        return ResponseEntity.badRequest().body("Both AM In and AM Out must be entered, or both left blank");
+                    }
+                    if ((hasPmIn && !hasPmOut) || (!hasPmIn && hasPmOut)) {
+                        return ResponseEntity.badRequest().body("Both PM In and PM Out must be entered, or both left blank");
+                    }
+                    if ((hasLunchOut && !hasLunchIn) || (!hasLunchOut && hasLunchIn)) {
+                        return ResponseEntity.badRequest().body("Both Lunch Out and Lunch In must be entered, or both left blank");
+                    }
+
+                    Integer amIn = hasAmIn ? parseTime(entry.getAmIn()) : null;
+                    Integer amOut = hasAmOut ? parseTime(entry.getAmOut()) : null;
+                    Integer lunchOut = hasLunchOut ? parseTime(entry.getLunchOut()) : null;
+                    Integer lunchIn = hasLunchIn ? parseTime(entry.getLunchIn()) : null;
+                    Integer pmIn = hasPmIn ? parseTime(entry.getPmIn()) : null;
+                    Integer pmOut = hasPmOut ? parseTime(entry.getPmOut()) : null;
+
+                    if (hasAmIn && amIn == null) return ResponseEntity.badRequest().body("Invalid AM In format");
+                    if (hasAmOut && amOut == null) return ResponseEntity.badRequest().body("Invalid AM Out format");
+                    if (hasLunchOut && lunchOut == null) return ResponseEntity.badRequest().body("Invalid Lunch Out format");
+                    if (hasLunchIn && lunchIn == null) return ResponseEntity.badRequest().body("Invalid Lunch In format");
+                    if (hasPmIn && pmIn == null) return ResponseEntity.badRequest().body("Invalid PM In format");
+                    if (hasPmOut && pmOut == null) return ResponseEntity.badRequest().body("Invalid PM Out format");
+
+                    if (hasAm && amOut <= amIn) {
+                        return ResponseEntity.badRequest().body("AM Out must be later than AM In");
+                    }
+                    if (hasPm && pmOut <= pmIn) {
+                        return ResponseEntity.badRequest().body("PM Out must be later than PM In");
+                    }
+                    if (hasLunchOut && hasLunchIn && lunchIn <= lunchOut) {
+                        return ResponseEntity.badRequest().body("Lunch In must be later than Lunch Out");
+                    }
+                    if (hasAmIn && hasPmOut && pmOut <= amIn) {
+                        return ResponseEntity.badRequest().body("PM Out must be later than AM In");
+                    }
+                    if (hasAmOut && hasPmIn && pmIn < amOut) {
+                        return ResponseEntity.badRequest().body("PM In must be at or after AM Out");
+                    }
+                    if (hasLunchOut && hasAmIn && lunchOut < amIn) {
+                        return ResponseEntity.badRequest().body("Lunch Out must be at or after AM In");
+                    }
+                    if (hasLunchIn && hasPmOut && pmOut < lunchIn) {
+                        return ResponseEntity.badRequest().body("PM Out must be at or after Lunch In");
+                    }
+                    if (hasLunchOut && hasAmOut && lunchOut < amOut) {
+                        return ResponseEntity.badRequest().body("Lunch Out must be at or after AM Out");
+                    }
+                    if (hasLunchIn && hasPmIn && pmIn < lunchIn) {
+                        return ResponseEntity.badRequest().body("PM In must be at or after Lunch In");
+                    }
+                }
+            } else {
+                if (!hasAmIn || !hasAmOut || !hasLunchOut || !hasLunchIn || !hasPmIn || !hasPmOut) {
+                    return ResponseEntity.badRequest().body("All time fields must be filled");
+                }
+
+                Integer amIn = parseTime(entry.getAmIn());
+                Integer amOut = parseTime(entry.getAmOut());
+                Integer lunchOut = parseTime(entry.getLunchOut());
+                Integer lunchIn = parseTime(entry.getLunchIn());
+                Integer pmIn = parseTime(entry.getPmIn());
+                Integer pmOut = parseTime(entry.getPmOut());
+
+                if (amIn == null || amOut == null || lunchOut == null || lunchIn == null || pmIn == null || pmOut == null) {
+                    return ResponseEntity.badRequest().body("Invalid time format");
+                }
+
+                if (amOut <= amIn) {
+                    return ResponseEntity.badRequest().body("AM Out must be later than AM In");
+                }
+                if (!amOut.equals(lunchOut)) {
+                    return ResponseEntity.badRequest().body("There should be no time gap between AM Out and Lunch Out");
+                }
+                if (lunchIn - lunchOut != 60) {
+                    return ResponseEntity.badRequest().body("Lunch break must be exactly one hour");
+                }
+                if (!lunchIn.equals(pmIn)) {
+                    return ResponseEntity.badRequest().body("Lunch In and PM In should not have any time gap");
+                }
+                if (pmOut <= pmIn) {
+                    return ResponseEntity.badRequest().body("PM Out must be later than PM In");
+                }
             }
         }
 

@@ -56,6 +56,74 @@ const validateDomain = (domain) => {
   return '';
 };
 
+const parseModifications = (reasonStr) => {
+  if (!reasonStr) return null;
+  if (!reasonStr.startsWith("Modified:") || !reasonStr.includes("| Previous:") || !reasonStr.includes("| Now:")) {
+    return null;
+  }
+  try {
+    const parts = reasonStr.split("|");
+    if (parts.length < 3) return null;
+
+    const modifiedPart = parts[0].replace("Modified:", "").trim();
+    const previousPart = parts[1].replace("Previous:", "").trim();
+    const nowPart = parts[2].replace("Now:", "").trim();
+
+    const prevMap = {};
+    previousPart.split(";").forEach(item => {
+      if (!item.trim()) return;
+      const idx = item.indexOf(":");
+      if (idx !== -1) {
+        const key = item.substring(0, idx).trim().toLowerCase();
+        const val = item.substring(idx + 1).trim();
+        prevMap[key] = val;
+      }
+    });
+
+    const newMap = {};
+    nowPart.split(";").forEach(item => {
+      if (!item.trim()) return;
+      const idx = item.indexOf(":");
+      if (idx !== -1) {
+        const key = item.substring(0, idx).trim().toLowerCase();
+        const val = item.substring(idx + 1).trim();
+        newMap[key] = val;
+      }
+    });
+
+    const fields = modifiedPart.split(",").map(f => f.trim());
+    return fields.map(field => {
+      let searchKey = field.toLowerCase();
+      if (searchKey === "department") searchKey = "dept";
+      if (searchKey === "joining date") searchKey = "dateofjoining";
+      if (searchKey === "contact number") searchKey = "contactnumber";
+      if (searchKey === "project") searchKey = "project name";
+      if (searchKey === "company") searchKey = "company name";
+
+      let prevVal = prevMap[searchKey] || prevMap[field.toLowerCase()] || "N/A";
+      let newVal = newMap[searchKey] || newMap[field.toLowerCase()] || "N/A";
+
+      if (prevVal === "N/A") {
+        const foundKey = Object.keys(prevMap).find(k => k.includes(searchKey) || searchKey.includes(k));
+        if (foundKey) prevVal = prevMap[foundKey];
+      }
+      if (newVal === "N/A") {
+        const foundKey = Object.keys(newMap).find(k => k.includes(searchKey) || searchKey.includes(k));
+        if (foundKey) newVal = newMap[foundKey];
+      }
+
+      return {
+        fieldName: field,
+        previousValue: prevVal,
+        modifiedValue: newVal
+      };
+    });
+  } catch (err) {
+    console.error("Error parsing modifications", err);
+    return null;
+  }
+};
+
 const getDisplayCountry = (country) => {
   if (!country) return 'N/A';
   if (country.includes('IN') || country.includes('India') || country.includes('+91')) return 'India';
@@ -1794,7 +1862,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               <button className="modal-close" onClick={() => setIsAuditModalOpen(false)} style={{ margin: 0 }}>×</button>
             </div>
 
-            <div style={{ maxHeight: '450px', overflowY: 'auto', paddingRight: '4px' }}>
+            <div className="no-scrollbar" style={{ maxHeight: '450px', overflowY: 'auto', paddingRight: '4px' }}>
               {isLoadingLogs ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b', fontSize: '13px' }}>
                   Loading logs...
@@ -1873,80 +1941,108 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
         </div>
       )}
 
-      {selectedLogForView && (
-        <div className="modal-overlay open" style={{ zIndex: 1002, background: 'rgba(0,0,0,0.6)' }}>
-          <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px', borderRadius: '16px', boxShadow: 'var(--shadow-lg)' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="16" x2="12" y2="12"></line>
-                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                </svg>
-                Audit Log Details
-              </h3>
-              <button className="modal-close" onClick={() => setSelectedLogForView(null)}>×</button>
-            </div>
+      {selectedLogForView && (() => {
+        const parsedMods = parseModifications(selectedLogForView.reason);
+        return (
+          <div className="modal-overlay open" style={{ zIndex: 1002, background: 'rgba(0,0,0,0.6)' }}>
+            <div className="modal" style={{ width: parsedMods ? '620px' : '420px', maxWidth: '90vw', padding: '24px', borderRadius: '16px', boxShadow: 'var(--shadow-lg)' }}>
+              <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                  Audit Log Details
+                </h3>
+                <button className="modal-close" onClick={() => setSelectedLogForView(null)}>×</button>
+              </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Timestamp</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>
-                    {(() => {
-                      let parsedStr = selectedLogForView.timestamp;
-                      if (typeof parsedStr === 'string' && !parsedStr.endsWith('Z') && !parsedStr.includes('+') && !parsedStr.includes('-')) {
-                        parsedStr = parsedStr + 'Z';
-                      }
-                      return parsedStr ? new Date(parsedStr).toLocaleString() : 'N/A';
-                    })()}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Timestamp</div>
+                    <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>
+                      {(() => {
+                        let parsedStr = selectedLogForView.timestamp;
+                        if (typeof parsedStr === 'string' && !parsedStr.endsWith('Z') && !parsedStr.includes('+') && !parsedStr.includes('-')) {
+                          parsedStr = parsedStr + 'Z';
+                        }
+                        return parsedStr ? new Date(parsedStr).toLocaleString() : 'N/A';
+                      })()}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2.5px' }}>{formatRelativeTime(selectedLogForView.timestamp)}</div>
                   </div>
-                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2.5px' }}>{formatRelativeTime(selectedLogForView.timestamp)}</div>
-                </div>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Action</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744', marginTop: 'auto', marginBottom: 'auto' }}>
-                    <span className="audit-badge" style={{ ...getBadgeStyleForAction(selectedLogForView.action), display: 'inline-block', width: 'fit-content' }}>
-                      {selectedLogForView.action}
-                    </span>
+                  <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Action</div>
+                    <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744', marginTop: 'auto', marginBottom: 'auto' }}>
+                      <span className="audit-badge" style={{ ...getBadgeStyleForAction(selectedLogForView.action), display: 'inline-block', width: 'fit-content' }}>
+                        {selectedLogForView.action}
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Target Employee</div>
+                    <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{selectedLogForView.affectedName}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>ID: {selectedLogForView.affectedEmpId}</div>
+                  </div>
+                  <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Performed By</div>
+                    <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{selectedLogForView.performedByName}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>ID: {selectedLogForView.performedByEmpId}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Updated Modifications</div>
+                  {parsedMods ? (
+                    <div className="no-scrollbar" style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                            <th style={{ padding: '10px 12px', fontWeight: '600', color: '#475569' }}>Field Name</th>
+                            <th style={{ padding: '10px 12px', fontWeight: '600', color: '#475569' }}>Previous Value</th>
+                            <th style={{ padding: '10px 12px', fontWeight: '600', color: '#475569' }}>Modified Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedMods.map((mod, idx) => (
+                            <tr key={idx} style={{ borderBottom: idx === parsedMods.length - 1 ? 'none' : '1px solid #e2e8f0' }}>
+                              <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b' }}>{mod.fieldName}</td>
+                              <td style={{ padding: '10px 12px', color: '#ef4444', backgroundColor: '#fff5f5', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{mod.previousValue}</td>
+                              <td style={{ padding: '10px 12px', color: '#10b981', backgroundColor: '#f0fdf4', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{mod.modifiedValue}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ background: '#fffcf6', padding: '14px', borderRadius: '10px', border: '1px solid #fef08a' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#713f12' }}>{selectedLogForView.reason}</div>
+                    </div>
+                  )}
+                </div>
+
+                {selectedLogForView.comments && (
+                  <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Comments / Remarks</div>
+                    <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.5', whiteSpace: 'normal', wordBreak: 'break-word' }}>{selectedLogForView.comments}</div>
+                  </div>
+                )}
               </div>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Target Employee</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{selectedLogForView.affectedName}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>ID: {selectedLogForView.affectedEmpId}</div>
-                </div>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Performed By</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{selectedLogForView.performedByName}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>ID: {selectedLogForView.performedByEmpId}</div>
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid #f1f5f9', paddingTop: '14px' }}>
+                <button className="btn btn-ghost btn-md" onClick={() => setSelectedLogForView(null)}>
+                  Close
+                </button>
               </div>
-
-              <div style={{ background: '#fffcf6', padding: '14px', borderRadius: '10px', border: '1px solid #fef08a' }}>
-                <div style={{ fontSize: '10px', color: '#a16207', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Reason</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#713f12' }}>{selectedLogForView.reason}</div>
-              </div>
-
-              {selectedLogForView.comments && (
-                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Comments / Remarks</div>
-                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.5', whiteSpace: 'normal', wordBreak: 'break-word' }}>{selectedLogForView.comments}</div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid #f1f5f9', paddingTop: '14px' }}>
-              <button className="btn btn-ghost btn-md" onClick={() => setSelectedLogForView(null)}>
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {deleteMessage && (
         <div style={{

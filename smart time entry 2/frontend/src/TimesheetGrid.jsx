@@ -81,6 +81,7 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
   const containerRef = React.useRef(null);
   const dropdownRef = React.useRef(null);
   const blurTimeoutRef = React.useRef(null);
+  const inputRef = React.useRef(null);
 
   // Generate 30-minute intervals
   const timeSlots = React.useMemo(() => {
@@ -229,7 +230,13 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
   return (
     <div 
       ref={containerRef} 
-      className="time-select-container"
+      className={`time-select-container ${disabled ? 'disabled' : ''}`}
+      onClick={() => {
+        if (!disabled) {
+          inputRef.current?.focus();
+          setIsOpen(true);
+        }
+      }}
       style={{
         position: 'relative',
         display: 'flex',
@@ -241,11 +248,13 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
         borderColor: isFocused ? 'var(--teal, #2d8f7b)' : ((!isValidFormat || isError) ? '#e11d48' : '#ddd'),
         boxShadow: isFocused ? '0 0 0 2px rgba(45,143,123,0.2), 0 1px 2px rgba(0,0,0,0.05)' : '0 1px 2px rgba(0,0,0,0.05)',
         transition: 'border-color 0.2s, box-shadow 0.2s',
-        height: '28px'
+        height: '28px',
+        cursor: disabled ? 'default' : 'pointer'
       }}
       title={!isValidFormat ? "Invalid 24h format (HH:mm). Click/type to fix." : ""}
     >
       <input
+        ref={inputRef}
         type="text"
         placeholder="HH:MM"
         maxLength="5"
@@ -274,35 +283,15 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
           fontFamily: "'Space Mono', monospace"
         }}
       />
-      {!disabled && (
-        <button
-          type="button"
-          tabIndex={-1}
-          className="time-select-arrow"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsOpen(!isOpen);
-          }}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0 2px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            color: '#8a94b0',
-            fontSize: '8px'
-          }}
-        >
-          ▼
-        </button>
-      )}
 
       {isOpen && !disabled && (
         <div 
           ref={dropdownRef}
           tabIndex={-1}
           className="time-select-dropdown"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -323,7 +312,11 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
             return (
               <div
                 key={slot}
-                onClick={() => selectTime(slot)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectTime(slot);
+                }}
                 style={{
                   padding: '6px 12px',
                   fontSize: '12px',
@@ -886,10 +879,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const getValidationErrors = (row) => {
     const errors = [];
-    const isWknd = row.date && (new Date(row.date).getDay() === 0 || new Date(row.date).getDay() === 6);
+    const isWknd = row.date && (getDay(parseISO(row.date)) === 0 || getDay(parseISO(row.date)) === 6);
     const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
+    const isWeekendOrHoliday = isWknd || type === 'Holiday';
 
-    if (!['Working Day', 'WFH'].includes(type)) {
+    if (!['Working Day', 'WFH', 'Holiday'].includes(type)) {
       return errors;
     }
 
@@ -925,20 +919,59 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const pmIn = row.pmIn ? parseTime(row.pmIn) : null;
     const pmOut = row.pmOut ? parseTime(row.pmOut) : null;
 
-    if (amIn !== null && amOut !== null && amOut <= amIn) {
-      errors.push("AM Out must be later than AM In");
-    }
-    if (amOut !== null && lunchOut !== null && amOut !== lunchOut) {
-      errors.push("There should be no time gap between AM Out and Lunch Out");
-    }
-    if (lunchOut !== null && lunchIn !== null && (lunchIn - lunchOut !== 60)) {
-      errors.push("Lunch break must be exactly one hour");
-    }
-    if (lunchIn !== null && pmIn !== null && lunchIn !== pmIn) {
-      errors.push("Lunch In and PM In should not have any time gap");
-    }
-    if (pmIn !== null && pmOut !== null && pmOut <= pmIn) {
-      errors.push("PM Out must be later than PM In");
+    if (isWeekendOrHoliday) {
+      if ((amIn !== null && amOut === null) || (amIn === null && amOut !== null)) {
+        errors.push("Both AM In and AM Out must be entered, or both left blank");
+      }
+      if ((pmIn !== null && pmOut === null) || (pmIn === null && pmOut !== null)) {
+        errors.push("Both PM In and PM Out must be entered, or both left blank");
+      }
+      if ((lunchOut !== null && lunchIn === null) || (lunchOut === null && lunchIn !== null)) {
+        errors.push("Both Lunch Out and Lunch In must be entered, or both left blank");
+      }
+      if (amIn !== null && amOut !== null && amOut <= amIn) {
+        errors.push("AM Out must be later than AM In");
+      }
+      if (pmIn !== null && pmOut !== null && pmOut <= pmIn) {
+        errors.push("PM Out must be later than PM In");
+      }
+      if (lunchOut !== null && lunchIn !== null && lunchIn <= lunchOut) {
+        errors.push("Lunch In must be later than Lunch Out");
+      }
+      if (amIn !== null && pmOut !== null && pmOut <= amIn) {
+        errors.push("PM Out must be later than AM In");
+      }
+      if (amOut !== null && pmIn !== null && pmIn < amOut) {
+        errors.push("PM In must be at or after AM Out");
+      }
+      if (lunchOut !== null && amIn !== null && lunchOut < amIn) {
+        errors.push("Lunch Out must be at or after AM In");
+      }
+      if (lunchIn !== null && pmOut !== null && pmOut < lunchIn) {
+        errors.push("PM Out must be at or after Lunch In");
+      }
+      if (lunchOut !== null && amOut !== null && lunchOut < amOut) {
+        errors.push("Lunch Out must be at or after AM Out");
+      }
+      if (lunchIn !== null && pmIn !== null && pmIn < lunchIn) {
+        errors.push("PM In must be at or after Lunch In");
+      }
+    } else {
+      if (amIn !== null && amOut !== null && amOut <= amIn) {
+        errors.push("AM Out must be later than AM In");
+      }
+      if (amOut !== null && lunchOut !== null && amOut !== lunchOut) {
+        errors.push("There should be no time gap between AM Out and Lunch Out");
+      }
+      if (lunchOut !== null && lunchIn !== null && (lunchIn - lunchOut !== 60)) {
+        errors.push("Lunch break must be exactly one hour");
+      }
+      if (lunchIn !== null && pmIn !== null && lunchIn !== pmIn) {
+        errors.push("Lunch In and PM In should not have any time gap");
+      }
+      if (pmIn !== null && pmOut !== null && pmOut <= pmIn) {
+        errors.push("PM Out must be later than PM In");
+      }
     }
 
     return errors;
@@ -948,27 +981,64 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const errors = getValidationErrors(row);
     if (errors.length > 0) return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: true, errors };
 
-    if (!row.amIn || !row.pmOut) return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
+    const isWknd = row.date && (getDay(parseISO(row.date)) === 0 || getDay(parseISO(row.date)) === 6);
+    const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
+    const isWeekendOrHoliday = isWknd || type === 'Holiday';
+
+    if (type === 'Holiday' && !row.amIn && !row.amOut && !row.lunchOut && !row.lunchIn && !row.pmIn && !row.pmOut) {
+      return { reg: '00:00', ot: '--', tot: '00:00', rawMins: 0, regMins: 0, error: false, errors: [] };
+    }
+
+    if (isWeekendOrHoliday) {
+      const hasAm = row.amIn && row.amOut;
+      const hasPm = row.pmIn && row.pmOut;
+      if (!hasAm && !hasPm) {
+        return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
+      }
+    } else {
+      if (!row.amIn || !row.pmOut) {
+        return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
+      }
+    }
 
     const amIn = parseTime(row.amIn);
     const amOut = parseTime(row.amOut);
     const pmIn = parseTime(row.pmIn);
     const pmOut = parseTime(row.pmOut);
 
-    let amDiff = 0, pmDiff = 0;
-    if (row.amOut && amOut > amIn) amDiff = amOut - amIn;
-    if (row.pmIn && pmOut > pmIn) pmDiff = pmOut - pmIn;
+    let totalMins = 0;
 
-    const totalMins = amDiff + pmDiff;
+    if (isWeekendOrHoliday) {
+      const hasAm = row.amIn && row.amOut;
+      const hasPm = row.pmIn && row.pmOut;
+      let amDiff = 0, pmDiff = 0;
+      if (hasAm && amOut > amIn) amDiff = amOut - amIn;
+      if (hasPm && pmOut > pmIn) pmDiff = pmOut - pmIn;
+      totalMins = amDiff + pmDiff;
+    } else {
+      let amDiff = 0, pmDiff = 0;
+      if (row.amOut && amOut > amIn) amDiff = amOut - amIn;
+      if (row.pmIn && pmOut > pmIn) pmDiff = pmOut - pmIn;
+      totalMins = amDiff + pmDiff;
+    }
+
     if (totalMins > 1440) return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: true, errors: ['Duration exceeds 24h'] };
 
-    const regMins = Math.min(totalMins, 480);
-    const otMins = Math.max(0, totalMins - 480);
+    let regMins = 0;
+    let otMins = 0;
+
+    if (isWeekendOrHoliday) {
+      regMins = 0;
+      otMins = totalMins;
+    } else {
+      regMins = Math.min(totalMins, 480);
+      otMins = Math.max(0, totalMins - 480);
+    }
 
     const fmt = (m) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
     
     return {
-      reg: totalMins > 0 ? fmt(regMins) : '--',
+      reg: isWeekendOrHoliday ? '00:00' : (totalMins > 0 ? fmt(regMins) : '--'),
       ot: otMins > 0 ? fmt(otMins) : '--',
       tot: totalMins > 0 ? fmt(totalMins) : '--',
       rawMins: totalMins,
@@ -1002,8 +1072,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return;
     }
     
-    const isWknd = row.date && (new Date(row.date).getDay() === 0 || new Date(row.date).getDay() === 6);
+    const isWknd = row.date && (getDay(parseISO(row.date)) === 0 || getDay(parseISO(row.date)) === 6);
     const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
+    const isWeekendOrHoliday = isWknd || type === 'Holiday';
 
     const focusFirstRowInvalidField = () => {
       setTimeout(() => {
@@ -1021,11 +1092,24 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       }, 100);
     };
 
-    if (isSubmit && ['Working Day', 'WFH'].includes(type)) {
-      if (!row.amIn || !row.amOut || !row.lunchOut || !row.lunchIn || !row.pmIn || !row.pmOut) {
-        await showAlert('All time fields must be filled before submitting.', { title: 'Validation Error', type: 'warn' });
-        focusFirstRowInvalidField();
-        return;
+    if (isSubmit && (['Working Day', 'WFH'].includes(type) || type === 'Holiday')) {
+      if (isWeekendOrHoliday) {
+        const hasAny = row.amIn || row.amOut || row.lunchOut || row.lunchIn || row.pmIn || row.pmOut;
+        if (type !== 'Holiday' || hasAny) {
+          const hasAm = row.amIn && row.amOut;
+          const hasPm = row.pmIn && row.pmOut;
+          if (!hasAm && !hasPm) {
+            await showAlert('Either AM In/Out or PM In/Out must be completely filled to submit working hours.', { title: 'Validation Error', type: 'warn' });
+            focusFirstRowInvalidField();
+            return;
+          }
+        }
+      } else {
+        if (!row.amIn || !row.amOut || !row.lunchOut || !row.lunchIn || !row.pmIn || !row.pmOut) {
+          await showAlert('All time fields must be filled before submitting.', { title: 'Validation Error', type: 'warn' });
+          focusFirstRowInvalidField();
+          return;
+        }
       }
     }
 
@@ -1551,19 +1635,18 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         if (r.status === 'Approved') {
           leaveHrs += h.rawMins;
         }
-      } else {
-        if (r.status === 'Approved') {
-          regSum += Math.min(h.rawMins, 480);
-        }
-        if (r.otStatus === 'Approved') {
-          otSum += Math.max(0, h.rawMins - 480);
-        }
-        if (r.status === 'Approved') {
-          totSum += Math.min(h.rawMins, 480);
-        }
-        if (r.otStatus === 'Approved') {
-          totSum += Math.max(0, h.rawMins - 480);
-        }
+      }
+
+      const rMins = h.regMins || 0;
+      const oMins = h.rawMins - rMins;
+
+      if (r.status === 'Approved') {
+        regSum += rMins;
+        totSum += rMins;
+      }
+      if (r.otStatus === 'Approved') {
+        otSum += oMins;
+        totSum += oMins;
       }
     }
   });
@@ -2026,7 +2109,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 const isVisuallyEdited = isEdited && (!entries[dateStr] || timingsModifiedSinceSave);
                 const bgColor = getRowBgColor(row.type, isWknd);
                 
-                const isLockedType = ['Week Off', 'Holiday', 'Paid Leave', 'Unpaid Leave'].includes(row.type);
+                const isLockedType = ['Week Off', 'Paid Leave', 'Unpaid Leave'].includes(row.type);
+                const isTimeEntryOptional = ['Week Off', 'Holiday', 'Paid Leave', 'Unpaid Leave'].includes(row.type);
                 const isApproved = row.status === 'Approved';
                 const hasResubmitAccess = row.otResubmissionGranted && !row.otResubmissionUsed;
                 const originalHasOT = !!entries[dateStr] && 
@@ -2142,12 +2226,33 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   );
 
                 const isNoSubmitNeeded = row.type === 'Week Off';
+                const isWeekendOrHoliday = isWknd || row.type === 'Holiday';
                 const isWkType = ['Working Day', 'WFH'].includes(row.type || (isWknd ? 'Week Off' : 'Working Day'));
-                const hasAllFields = isWkType 
-                  ? (row.amIn && row.amOut && row.lunchOut && row.lunchIn && row.pmIn && row.pmOut)
-                  : true;
+                
+                let hasAllFields = true;
+                if (isWkType) {
+                  if (isWeekendOrHoliday) {
+                    const hasAm = row.amIn && row.amOut;
+                    const hasPm = row.pmIn && row.pmOut;
+                    const lunchValid = (!row.lunchOut && !row.lunchIn) || (row.lunchOut && row.lunchIn);
+                    hasAllFields = !!((hasAm || hasPm) && lunchValid);
+                  } else {
+                    hasAllFields = !!(row.amIn && row.amOut && row.lunchOut && row.lunchIn && row.pmIn && row.pmOut);
+                  }
+                } else if (row.type === 'Holiday') {
+                  const hasAny = row.amIn || row.amOut || row.lunchOut || row.lunchIn || row.pmIn || row.pmOut;
+                  if (hasAny) {
+                    const hasAm = row.amIn && row.amOut;
+                    const hasPm = row.pmIn && row.pmOut;
+                    const lunchValid = (!row.lunchOut && !row.lunchIn) || (row.lunchOut && row.lunchIn);
+                    hasAllFields = !!((hasAm || hasPm) && lunchValid);
+                  } else {
+                    hasAllFields = true;
+                  }
+                }
+
                 const hasValidTimes = hasAllFields && !hrs.error;
-                const canSubmit = !isAdmin && (row.status !== 'Approved' || hasResubmitAccess) && (!isNoSubmitNeeded) && (hasValidTimes || isLockedType) && !isFutureDay && !isLocked;
+                const canSubmit = !isAdmin && (row.status !== 'Approved' || hasResubmitAccess) && (!isNoSubmitNeeded) && (hasValidTimes || (isTimeEntryOptional && !hrs.error)) && !isFutureDay && !isLocked;
                 const justAppliedOT = row.otStatus && row.otStatus !== (entries[dateStr]?.otStatus || null) && !timingsChangedSinceOtApply;
                 const showOTApply = !isReadonly && !isLockedType && hrs.ot !== '--' && (!row.otStatus || (isVisuallyEdited && !justAppliedOT));
 
@@ -2189,12 +2294,24 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                             className="day-type-select"
                             style={{background: isReadonly ? 'transparent' : '#fff'}}
                           >
-                            <option>Working Day</option>
-                            <option>WFH</option>
-                            <option>Week Off</option>
-                            <option>Holiday</option>
-                            <option>Paid Leave</option>
-                            <option>Unpaid Leave</option>
+                            {isWknd ? (
+                              <>
+                                <option>Working Day</option>
+                                <option>WFH</option>
+                                {row.type && !['Working Day', 'WFH'].includes(row.type) && (
+                                  <option disabled hidden value={row.type}>{row.type}</option>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <option>Working Day</option>
+                                <option>WFH</option>
+                                <option>Week Off</option>
+                                <option>Holiday</option>
+                                <option>Paid Leave</option>
+                                <option>Unpaid Leave</option>
+                              </>
+                            )}
                           </select>
                         )}
                     </td>
@@ -2537,9 +2654,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           </table>
         </div>
         <div style={{display:'flex', gap:'25px', padding:'15px 20px', background:'#fff', borderTop:'1px solid #eee', fontSize:'12px', color:'#4b5563', alignItems:'center', flexWrap: 'wrap'}}>
-          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #2d8f7b', background:'#f0fdfa'}}></div> Working Day</div>
+          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #cbd5e1', background:'#ffffff'}}></div> Working Day</div>
           <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #8a8a8a', background:'#D3D3D3'}}></div> Weekend</div>
-          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #e11d48', background:'#fff1f2'}}></div> Holiday</div>
+          <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #5a8f5a', background:'#eaf3ea'}}></div> Holiday</div>
           <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #f59e0b', background:'#fffbeb'}}></div> Leave</div>
           <div style={{display:'flex', alignItems:'center', gap:'8px'}}><div style={{width:'10px', height:'10px', borderRadius:'50%', border:'2px solid #0ea5e9', background:'#f0f9ff'}}></div> WFH</div>
           <div style={{display:'flex', alignItems:'center', gap:'8px'}}><span style={{background:'#e11d48', color:'#fff', borderRadius:'50%', width:'14px', height:'14px', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'900'}}>!</span> OT exceeded</div>

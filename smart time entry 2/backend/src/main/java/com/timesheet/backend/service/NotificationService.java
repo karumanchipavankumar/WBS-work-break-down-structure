@@ -33,15 +33,12 @@ public class NotificationService {
     private int retentionDays;
 
     public String formatMessage(String action, String empName, String empId, String dateOrWeek, String comment) {
-        String timestamp = LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String timestamp = LocalDateTime.now(java.time.ZoneId.of("UTC")).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         StringBuilder sb = new StringBuilder();
         sb.append("Action: ").append(action)
           .append(" | Employee: ").append(empName).append(" (").append(empId).append(")")
           .append(" | Date: ").append(dateOrWeek)
           .append(" | Time: ").append(timestamp);
-        if (comment != null && !comment.trim().isEmpty()) {
-            sb.append(" | Details: ").append(comment.trim());
-        }
         return sb.toString();
     }
 

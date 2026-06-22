@@ -102,7 +102,8 @@ public class AdminController {
             userRepository.save(user);
 
             // Notify all admins
-            notificationService.notifyAllAdmins("Employee account for " + user.getName() + " (" + user.getEmpId() + ") has been disabled.");
+            String disableMsg = notificationService.formatMessage("Employee Account Disabled", user.getName(), user.getEmpId(), "N/A", null);
+            notificationService.notifyAllAdmins(disableMsg);
 
             // Log action in AuditLog
             String adminEmpId = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
@@ -146,6 +147,10 @@ public class AdminController {
 
             user.setEnabled(true);
             userRepository.save(user);
+
+            // Notify all admins
+            String enableMsg = notificationService.formatMessage("Employee Account Enabled", user.getName(), user.getEmpId(), "N/A", null);
+            notificationService.notifyAllAdmins(enableMsg);
 
             // Log action in AuditLog
             String adminEmpId = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
@@ -518,7 +523,8 @@ public class AdminController {
             System.err.println("Failed to send welcome credentials email: " + e.getMessage());
         }
         
-        notificationService.notifyAllAdmins("Successfully created employee: " + saved.getName() + " (" + saved.getEmpId() + "). Welcome credentials email sent.");
+        String creationMsg = notificationService.formatMessage("Employee Created", saved.getName(), saved.getEmpId(), "N/A", null);
+        notificationService.notifyAllAdmins(creationMsg);
         
         return ResponseEntity.ok(saved);
     }
@@ -566,7 +572,8 @@ public class AdminController {
             userRepository.delete(user);
             
             // Trigger admin notification on deletion
-            notificationService.notifyAllAdmins("Employee account for " + name + " (" + empId + ") has been deleted.");
+            String deletionMsg = notificationService.formatMessage("Employee Deleted", name, empId, "N/A", null);
+            notificationService.notifyAllAdmins(deletionMsg);
             
             return ResponseEntity.ok().body(Map.of("message", "Employee deleted successfully"));
         }).orElse(ResponseEntity.notFound().build());
@@ -897,53 +904,45 @@ public class AdminController {
                 adminName = adminOpt.get().getName();
             }
 
-            if (managerChanged) {
+            boolean anyChanged = nameChanged || emailChanged || managerChanged || projectChanged ||
+                                 companyChanged || deptChanged || joiningDateChanged ||
+                                 countryChanged || contactChanged || roleChanged;
+
+            if (anyChanged) {
+                java.util.List<String> changedFields = new java.util.ArrayList<>();
+                if (nameChanged) changedFields.add("Name");
+                if (emailChanged) changedFields.add("Email");
+                if (managerChanged) changedFields.add("Manager");
+                if (projectChanged) changedFields.add("Project");
+                if (companyChanged) changedFields.add("Company");
+                if (deptChanged) changedFields.add("Department");
+                if (joiningDateChanged) changedFields.add("Joining Date");
+                if (countryChanged) changedFields.add("Country");
+                if (contactChanged) changedFields.add("Contact Number");
+                if (roleChanged) changedFields.add("Role");
+
+                String changedFieldsStr = String.join(", ", changedFields);
+                String reasonStr = String.format("Modified: %s | Previous: %s | Now: %s", 
+                    changedFieldsStr, prevVals.toString().trim(), newValList.toString().trim());
+                if (reasonStr.length() > 990) {
+                    reasonStr = reasonStr.substring(0, 990) + "...";
+                }
+
                 AuditLog log = new AuditLog();
-                log.setAction("Employee Manager Changed");
+                log.setAction("EMP_Details_Updated");
                 log.setAffectedEmpId(user.getEmpId());
                 log.setAffectedName(name);
                 log.setPerformedByEmpId(adminEmpId);
                 log.setPerformedByName(adminName);
-                log.setPreviousValues(user.getManager());
-                log.setNewValues(manager);
-                auditLogRepository.save(log);
-            }
-            if (deptChanged) {
-                AuditLog log = new AuditLog();
-                log.setAction("Employee Department Changed");
-                log.setAffectedEmpId(user.getEmpId());
-                log.setAffectedName(name);
-                log.setPerformedByEmpId(adminEmpId);
-                log.setPerformedByName(adminName);
-                log.setPreviousValues(user.getDept());
-                log.setNewValues(dept);
-                auditLogRepository.save(log);
-            }
-            if (roleChanged) {
-                AuditLog log = new AuditLog();
-                log.setAction("Employee Role Changed");
-                log.setAffectedEmpId(user.getEmpId());
-                log.setAffectedName(name);
-                log.setPerformedByEmpId(adminEmpId);
-                log.setPerformedByName(adminName);
-                log.setPreviousValues(oldRole);
-                log.setNewValues(newRole);
-                auditLogRepository.save(log);
-            }
-            if (nameChanged || emailChanged || projectChanged || companyChanged || joiningDateChanged) {
-                AuditLog log = new AuditLog();
-                log.setAction("Employee Updated/Modified");
-                log.setAffectedEmpId(user.getEmpId());
-                log.setAffectedName(name);
-                log.setPerformedByEmpId(adminEmpId);
-                log.setPerformedByName(adminName);
-                log.setPreviousValues(prevVals.toString());
-                log.setNewValues(newValList.toString());
+                log.setPreviousValues(prevVals.toString().trim());
+                log.setNewValues(newValList.toString().trim());
+                log.setReason(reasonStr);
                 auditLogRepository.save(log);
             }
 
             // Trigger notification only for admins
-            notificationService.notifyAllAdmins("Successfully updated employee details for: " + saved.getName() + " (" + saved.getEmpId() + ").");
+            String updateMsg = notificationService.formatMessage("Employee Details Updated", saved.getName(), saved.getEmpId(), "N/A", null);
+            notificationService.notifyAllAdmins(updateMsg);
 
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());

@@ -32,27 +32,50 @@ function formatRelativeTime(dateString) {
 
 function formatNotificationMessage(msg) {
   if (!msg) return '';
-  const match = msg.match(/\| Time:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
-  if (match) {
-    const utcTimeStr = match[1].replace(' ', 'T') + 'Z';
+
+  // Remove "Details" / "Reason" section
+  let cleanMsg = msg;
+  const detailsIdx = cleanMsg.indexOf(' | Details:');
+  if (detailsIdx !== -1) {
+    cleanMsg = cleanMsg.substring(0, detailsIdx);
+  }
+
+  // Parse structured elements
+  const actionMatch = cleanMsg.match(/Action:\s*([^|]+)/);
+  const empMatch = cleanMsg.match(/Employee:\s*([^|]+)/);
+  const dateMatch = cleanMsg.match(/(?:Timesheet )?Date:\s*([^|]+)/);
+  const timeMatch = cleanMsg.match(/(?:Action )?Time:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+
+  if (actionMatch && empMatch && dateMatch && timeMatch) {
+    const action = actionMatch[1].trim();
+    const employee = empMatch[1].trim();
+    const timesheetDate = dateMatch[1].trim();
+    const utcTimeStr = timeMatch[1].trim().replace(' ', 'T') + 'Z';
+
     try {
       const localDate = new Date(utcTimeStr);
       if (!isNaN(localDate.getTime())) {
         const pad = (n) => String(n).padStart(2, '0');
-        const year = localDate.getFullYear();
-        const month = pad(localDate.getMonth() + 1);
-        const day = pad(localDate.getDate());
+        const localYear = localDate.getFullYear();
+        const localMonth = pad(localDate.getMonth() + 1);
+        const localDay = pad(localDate.getDate());
+        
         const hours = pad(localDate.getHours());
         const minutes = pad(localDate.getMinutes());
         const seconds = pad(localDate.getSeconds());
-        const localTimeStr = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-        return msg.replace(match[1], localTimeStr);
+        
+        const localDateStr = `${localYear}-${localMonth}-${localDay}`;
+        const localTimeStr = `${hours}:${minutes}:${seconds}`;
+
+        const forPart = (timesheetDate && timesheetDate !== 'N/A' && timesheetDate !== 'null') ? ` (for ${timesheetDate})` : '';
+        return `Action: ${action}${forPart} | Employee: ${employee} | Date: ${localDateStr} | Time: ${localTimeStr}`;
       }
     } catch (e) {
       console.error('Failed to convert notification timezone', e);
     }
   }
-  return msg;
+
+  return cleanMsg;
 }
 
 function hasUnsavedChanges() {

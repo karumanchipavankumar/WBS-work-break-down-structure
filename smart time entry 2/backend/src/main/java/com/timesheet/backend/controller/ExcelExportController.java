@@ -204,7 +204,7 @@ public class ExcelExportController {
 
         // Row background colours
         XSSFColor wkndBg  = new XSSFColor(new byte[]{(byte)211,(byte)211,(byte)211},null);
-        XSSFColor holBg   = new XSSFColor(new byte[]{(byte)255,(byte)228,(byte)225},null);
+        XSSFColor holBg   = new XSSFColor(new byte[]{(byte)234,(byte)243,(byte)234},null);
         XSSFColor leaveBg = new XSSFColor(new byte[]{(byte)255,(byte)248,(byte)225},null);
         XSSFColor wfhBg   = new XSSFColor(new byte[]{(byte)224,(byte)247,(byte)250},null);
 
@@ -489,72 +489,75 @@ public class ExcelExportController {
         XSSFCellStyle sumLabelTot = cloneWithBg(workbook, sumLabelStyle, totHrsBg);
         XSSFCellStyle sumValueTot = cloneWithBg(workbook, sumValueStyle, totHrsBg);
 
-        // --- Monthly Summary (Columns P-S, Rows 2-7) --------------------------
+        // --- Monthly Summary (Columns P-S) ------------------------------------
         int sR = 1;
         Row sumHdr = sheet.getRow(sR); if (sumHdr == null) sumHdr = sheet.createRow(sR);
         for (int i = 15; i <= 18; i++) { Cell c = sumHdr.createCell(i); c.setCellStyle(sumHeaderStyle); }
         sumHdr.getCell(15).setCellValue("MONTHLY SUMMARY");
         sheet.addMergedRegion(new CellRangeAddress(sR, sR, 15, 18));
 
-        // ── Compute Days Logged, Regular Hours, Overtime Hours, Weekend/Holiday Hours, and Total Hours Worked directly in Java ─────────────
-        double loggedCount = 0;
-        double regHrsTotal = 0.0;
-        double otHrsTotal = 0.0;
-        double wkndHolHrsTotal = 0.0;
+        // ── Compute summary metrics (5-row summary) ────────────────────────────
+        // Days Logged       = all submitted entries (any type, any hours).
+        // Regular Hours     = approved reg hours from any entry type.
+        // Overtime Hours    = approved OT hours (otStatus = Approved).
+        // Weekends/Holidays = count of submitted weekend OR holiday entries.
+        //                     Uses isWeekend flag so calendar weekends with
+        //                     type changed to "Working Day" are still counted.
+        // Total Hours Worked = Regular Hours + Overtime Hours.
+        double daysLoggedCount  = 0;   // all submitted
+        double wkndHolDaysCount = 0;   // weekend + holiday submitted days
+        double regHrsTotal      = 0.0;
+        double otHrsTotal       = 0.0;
 
         if (rows != null) {
             for (Map<String, Object> r : rows) {
-                String status    = str(r.get("status")).trim();
-                String otStatus  = str(r.get("otStatus")).trim();
-                String type      = str(r.get("type")).trim();
-                String totalHrs  = str(r.get("totalHrs")).trim();
-                String regHrs    = str(r.get("regHrs")).trim();
-                String otHrs     = str(r.get("otHrs")).trim();
+                String status   = str(r.get("status")).trim();
+                String otStatus = str(r.get("otStatus")).trim();
+                String type     = str(r.get("type")).trim();
+                String regHrs   = str(r.get("regHrs")).trim();
+                String otHrs    = str(r.get("otHrs")).trim();
+                // isWeekend is sent as "true"/"false" string from the frontend
+                boolean isWeekend = "true".equalsIgnoreCase(str(r.get("isWeekend")));
 
-                boolean hasHours = !totalHrs.isEmpty() && !"--".equals(totalHrs)
-                                   && parseTimeToDecimal(totalHrs) > 0.0;
+                boolean isSubmitted = !status.isEmpty() && !"Draft".equalsIgnoreCase(status);
+                boolean isWkndOrHol = isWeekend
+                                      || "Week Off".equalsIgnoreCase(type)
+                                      || "Holiday".equalsIgnoreCase(type);
 
-                // Days Logged = all days that have time data filled in (any submitted status, not Draft)
-                // This matches the frontend dashboard card which counts status != 'Draft' && has hours
-                boolean isSubmittedWithHours = hasHours && !status.isEmpty() && !"Draft".equalsIgnoreCase(status);
-                if (isSubmittedWithHours) {
-                    loggedCount++;
+                // Days Logged: every submitted entry regardless of type or hours
+                if (isSubmitted) {
+                    daysLoggedCount++;
+                    if (isWkndOrHol) {
+                        wkndHolDaysCount++;
+                    }
                 }
 
-                // Regular Hours calculation based ONLY on approved timesheet entries
+                // Hours: approved entries only
                 if ("Approved".equalsIgnoreCase(status)) {
+                    // Regular Hours: reg hours from any approved entry
                     if (!regHrs.isEmpty() && !"--".equals(regHrs)) {
                         regHrsTotal += parseTimeToDecimal(regHrs);
                     }
-                }
-
-                // OT Hours should reflect the latest approved OT records associated with approved timesheet entries
-                if ("Approved".equalsIgnoreCase(status) && "Approved".equalsIgnoreCase(otStatus)) {
-                    if (!otHrs.isEmpty() && !"--".equals(otHrs)) {
+                    // Overtime Hours: only where OT is also approved
+                    if ("Approved".equalsIgnoreCase(otStatus)
+                            && !otHrs.isEmpty() && !"--".equals(otHrs)) {
                         otHrsTotal += parseTimeToDecimal(otHrs);
-                    }
-                }
-
-                // Weekend/Holiday hours should only include approved entries
-                if ("Approved".equalsIgnoreCase(status)) {
-                    if ("Week Off".equalsIgnoreCase(type) || "Holiday".equalsIgnoreCase(type)) {
-                        if (!totalHrs.isEmpty() && !"--".equals(totalHrs)) {
-                            wkndHolHrsTotal += parseTimeToDecimal(totalHrs);
-                        }
                     }
                 }
             }
         }
-        double totHrsTotal = regHrsTotal + otHrsTotal + wkndHolHrsTotal;
+        double totHrsTotal = regHrsTotal + otHrsTotal;
 
-        // Summary table ALWAYS uses Java-computed values (approved-only filter applied above).
-        // Excel SUM formulas are NOT used here because data column J now shows hours for ALL
-        // row statuses (not just approved), which would produce wrong totals in the summary.
-        putSummaryRow(sheet, sR+1, "Days Logged",           sumLabelDays, sumValueDays, null, loggedCount);
-        putSummaryRow(sheet, sR+2, "Regular Hours",          sumLabelReg,  sumValueReg,  null, regHrsTotal);
-        putSummaryRow(sheet, sR+3, "Overtime Hours",         sumLabelOt,   sumValueOt,   null, otHrsTotal);
-        putSummaryRow(sheet, sR+4, "Weekend/Holiday Hours",  sumLabelWknd, sumValueWknd, null, wkndHolHrsTotal);
-        putSummaryRow(sheet, sR+5, "Total Hours Worked",     sumLabelTot,  sumValueTot,  null, totHrsTotal);
+        // Weekend/Holiday count uses integer format; hours use decimal (0.00).
+        XSSFCellStyle sumValueWkndHolInt = cloneWithBg(workbook, sumValueStyle, wkndHrsBg);
+        sumValueWkndHolInt.setDataFormat(df.getFormat("0"));
+
+        // Summary rows: exactly 5 items as specified
+        putSummaryRow(sheet, sR+1, "Days Logged",        sumLabelDays, sumValueDays, null, daysLoggedCount);
+        putSummaryRow(sheet, sR+2, "Regular Hours",      sumLabelReg,  sumValueReg,  null, regHrsTotal);
+        putSummaryRow(sheet, sR+3, "Overtime Hours",     sumLabelOt,   sumValueOt,   null, otHrsTotal);
+        putSummaryRow(sheet, sR+4, "Weekends/Holidays",  sumLabelWknd, sumValueWkndHolInt, null, wkndHolDaysCount);
+        putSummaryRow(sheet, sR+5, "Total Hours Worked", sumLabelTot,  sumValueTot,  null, totHrsTotal);
         for (int r = sR+1; r <= sR+5; r++) sheet.addMergedRegion(new CellRangeAddress(r, r, 15, 17));
 
         // â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
