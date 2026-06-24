@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { format, getDaysInMonth, startOfMonth, addDays, isSameDay, getDay, isAfter, parseISO, startOfDay } from 'date-fns';
 import api from './api';
 import { showAlert, showConfirm } from './AppModals';
+import confetti from 'canvas-confetti';
 
 const safeErrorText = (err, fallback) => {
   const data = err?.response?.data;
@@ -708,6 +709,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       setEmployee(updated);
       localStorage.setItem('admin_selected_employee', JSON.stringify(updated));
       setProfileMessage({ type: 'success', text: 'Profile updated successfully!' });
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
       setIsEditingProfile(false);
       setTimeout(() => {
         setProfileMessage({ type: '', text: '' });
@@ -2134,6 +2136,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 }
 
                 const isShortHours = 
+                  !isWknd &&
                   ['Working Day', 'WFH'].includes(row.type || 'Working Day') && 
                   row.amIn && row.pmOut && 
                   hrs.rawMins > 0 && 

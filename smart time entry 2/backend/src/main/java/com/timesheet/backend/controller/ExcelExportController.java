@@ -293,73 +293,94 @@ public class ExcelExportController {
         infoValueStyle.setBorderRight(BorderStyle.THIN);  infoValueStyle.setRightBorderColor(infoCellBorder);
         infoValueStyle.setWrapText(true);
 
-        // â”€â”€ Row 0: Title Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ——— Row 0: Title Banner —————————————————————————————————————————————————
         Row r0 = sheet.createRow(0); r0.setHeightInPoints(28);
         for (int i = 0; i < 19; i++) { Cell c = r0.createCell(i); c.setCellStyle(titleStyle); }
         r0.getCell(0).setCellValue("TIMESHEET REPORT - " + monthLabel);
         sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 18));
 
-        // â”€â”€ Row 1: Spacer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ——— Row 1: Spacer ————————————————————————————————————————————————————————
         sheet.createRow(1).setHeightInPoints(15);
 
-        // â”€â”€ Row 2: Employee / Dept / Manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ——— Calculate No. of Working Days ———
+        int workingDaysCount = 0;
+        if (rows != null) {
+            for (Map<String, Object> r : rows) {
+                boolean isWeekend = "true".equalsIgnoreCase(str(r.get("isWeekend")));
+                if (!isWeekend) {
+                    String type = str(r.get("type")).trim();
+                    String status = str(r.get("status")).trim();
+                    
+                    boolean isWorking = true;
+                    if ("Holiday".equalsIgnoreCase(type)) {
+                        if ("Draft".equalsIgnoreCase(status) || "Pending".equalsIgnoreCase(status) || "Rejected".equalsIgnoreCase(status)) {
+                            isWorking = true;
+                        } else {
+                            isWorking = false;
+                        }
+                    } else if ("Week Off".equalsIgnoreCase(type) || "Paid Leave".equalsIgnoreCase(type) || "Unpaid Leave".equalsIgnoreCase(type)) {
+                        if ("Draft".equalsIgnoreCase(status) || "Pending".equalsIgnoreCase(status) || "Rejected".equalsIgnoreCase(status)) {
+                            isWorking = true;
+                        } else {
+                            isWorking = false;
+                        }
+                    }
+                    
+                    if (isWorking) {
+                        workingDaysCount++;
+                    }
+                }
+            }
+        }
+
+        // ── Row 2: Employee / Month / Manager ─────────────────────────
         Row ir1 = sheet.createRow(2); ir1.setHeightInPoints(20);
         infoLabel(ir1, 0, "Employee:",   infoLabelStyle);
         infoValue(ir1, 1, 4, empName,    infoValueStyle);
         sheet.addMergedRegion(new CellRangeAddress(2, 2, 1, 4));
-        infoLabel(ir1, 5, "Dept:",       infoLabelStyle);
-        infoValue(ir1, 6, 8, dept,        infoValueStyle);
+        infoLabel(ir1, 5, "Month:",       infoLabelStyle);
+        infoValue(ir1, 6, 8, monthLabel,  infoValueStyle);
         sheet.addMergedRegion(new CellRangeAddress(2, 2, 6, 8));
         infoLabel(ir1, 9, "Manager:",    infoLabelStyle);
         infoValue(ir1, 10, 13, manager,  infoValueStyle);
         sheet.addMergedRegion(new CellRangeAddress(2, 2, 10, 13));
 
-        // â”€â”€ Row 3: Employee ID / Month / Reg Hrs/Day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Row 3: Employee ID / No. of Working Days / Reg Hrs/Day ─────────────────────
         Row ir2 = sheet.createRow(3); ir2.setHeightInPoints(20);
         infoLabel(ir2, 0, "Employee ID:", infoLabelStyle);
         infoValue(ir2, 1, 4, empId,        infoValueStyle);
         sheet.addMergedRegion(new CellRangeAddress(3, 3, 1, 4));
-        infoLabel(ir2, 5, "Month:",        infoLabelStyle);
-        infoValue(ir2, 6, 8, monthLabel,   infoValueStyle);
+        infoLabel(ir2, 5, "No. of Working Days:", infoLabelStyle);
+        for (int i = 6; i <= 8; i++) { Cell c = ir2.createCell(i); c.setCellStyle(infoValueStyle); }
+        ir2.getCell(6).setCellValue(workingDaysCount);
         sheet.addMergedRegion(new CellRangeAddress(3, 3, 6, 8));
         infoLabel(ir2, 9, "Reg Hrs/Day:", infoLabelStyle);
         for (int i = 10; i <= 13; i++) { Cell c = ir2.createCell(i); c.setCellStyle(infoValueStyle); }
         ir2.getCell(10).setCellValue(8);
         sheet.addMergedRegion(new CellRangeAddress(3, 3, 10, 13));
 
-        // â”€â”€ Row 4: Project Name / Company Name ──
-        Row ir3 = sheet.createRow(4); ir3.setHeightInPoints(20);
-        infoLabel(ir3, 0, "Project:",      infoLabelStyle);
-        infoValue(ir3, 1, 4, projectName,  infoValueStyle);
-        sheet.addMergedRegion(new CellRangeAddress(4, 4, 1, 4));
-        infoLabel(ir3, 5, "Company:",      infoLabelStyle);
-        infoValue(ir3, 6, 8, companyName,  infoValueStyle);
-        sheet.addMergedRegion(new CellRangeAddress(4, 4, 6, 8));
-        for (int i = 9; i <= 13; i++) { Cell c = ir3.createCell(i); c.setCellStyle(infoValueStyle); }
-        sheet.addMergedRegion(new CellRangeAddress(4, 4, 9, 13));
+        // ── Row 4: Spacer ──
+        sheet.createRow(4).setHeightInPoints(15);
 
-        // â”€â”€ Row 5: Spacer ──
-        sheet.createRow(5).setHeightInPoints(15);
-
-        // â”€â”€ Rows 6 & 7: Table Headers ──
-        Row mhr = sheet.createRow(6); mhr.setHeightInPoints(24);
+        // ── Rows 5 & 6: Table Headers ──
+        Row mhr = sheet.createRow(5); mhr.setHeightInPoints(24);
         for (int i = 0; i < 14; i++) { Cell c = mhr.createCell(i); c.setCellStyle(headerStyle); }
         mhr.getCell(0).setCellValue("Date");
         mhr.getCell(1).setCellValue("Day");
         mhr.getCell(2).setCellValue("Day Type");
         mhr.getCell(3).setCellValue("Morning Session");   mhr.getCell(3).setCellStyle(subHdrMorningGroup); mhr.getCell(4).setCellStyle(subHdrMorningGroup);
-        sheet.addMergedRegion(new CellRangeAddress(6, 6, 3, 4));
+        sheet.addMergedRegion(new CellRangeAddress(5, 5, 3, 4));
         mhr.getCell(5).setCellValue("Lunch Break");        mhr.getCell(5).setCellStyle(subHdrLunchGroup);   mhr.getCell(6).setCellStyle(subHdrLunchGroup);
-        sheet.addMergedRegion(new CellRangeAddress(6, 6, 5, 6));
+        sheet.addMergedRegion(new CellRangeAddress(5, 5, 5, 6));
         mhr.getCell(7).setCellValue("Afternoon Session");  mhr.getCell(7).setCellStyle(subHdrMorningGroup); mhr.getCell(8).setCellStyle(subHdrMorningGroup);
-        sheet.addMergedRegion(new CellRangeAddress(6, 6, 7, 8));
+        sheet.addMergedRegion(new CellRangeAddress(5, 5, 7, 8));
         mhr.getCell(9).setCellValue("Reg Hrs");   mhr.getCell(9).setCellStyle(subHdrHours);
         mhr.getCell(10).setCellValue("OT Hrs");  mhr.getCell(10).setCellStyle(subHdrHours);
         mhr.getCell(11).setCellValue("Total");   mhr.getCell(11).setCellStyle(subHdrHours);
         mhr.getCell(12).setCellValue("OT");      mhr.getCell(12).setCellStyle(subHdrLunchSub);
         mhr.getCell(13).setCellValue("Status");
 
-        Row shr = sheet.createRow(7); shr.setHeightInPoints(24);
+        Row shr = sheet.createRow(6); shr.setHeightInPoints(24);
         for (int i = 0; i < 14; i++) { Cell c = shr.createCell(i); c.setCellStyle(headerStyle); }
         shr.getCell(3).setCellValue("AM In");     shr.getCell(3).setCellStyle(subHdrMorningSub);
         shr.getCell(4).setCellValue("AM Out");    shr.getCell(4).setCellStyle(subHdrMorningSub);
@@ -370,14 +391,14 @@ public class ExcelExportController {
         shr.getCell(9).setCellStyle(subHdrHours); shr.getCell(10).setCellStyle(subHdrHours); shr.getCell(11).setCellStyle(subHdrHours);
         shr.getCell(12).setCellStyle(subHdrLunchSub);
 
-        for (int c : new int[]{0,1,2,9,10,11,12,13}) sheet.addMergedRegion(new CellRangeAddress(6, 7, c, c));
+        for (int c : new int[]{0,1,2,9,10,11,12,13}) sheet.addMergedRegion(new CellRangeAddress(5, 6, c, c));
 
-        // â”€â”€ Data Rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Data Rows ─────────────────────────────────────────────────────
         int numRows = rows != null ? rows.size() : 0;
         if (rows != null) {
             for (int idx = 0; idx < numRows; idx++) {
                 Map<String, Object> r = rows.get(idx);
-                Row row = sheet.createRow(8 + idx); row.setHeight((short) -1);
+                Row row = sheet.createRow(7 + idx); row.setHeight((short) -1);
 
                 boolean isWknd = "true".equals(str(r.get("isWeekend")));
                 String type    = str(r.get("type"));
@@ -449,13 +470,13 @@ public class ExcelExportController {
         }
 
         // — Totals Row —————————————————————————————————————————————————————
-        int totIdx = 8 + numRows;
+        int totIdx = 7 + numRows;
         Row totRow = sheet.createRow(totIdx); totRow.setHeightInPoints(24);
         for (int i = 0; i < 14; i++) { Cell c = totRow.createCell(i); c.setCellStyle(totalsLabel); }
         totRow.getCell(0).setCellValue("TOTALS - " + monthLabel);
         sheet.addMergedRegion(new CellRangeAddress(totIdx, totIdx, 0, 8));
 
-        int fd = 9, ld = 8 + numRows;
+        int fd = 8, ld = 7 + numRows;
         Cell tJ = totRow.getCell(9);  tJ.setCellStyle(totalsDecimal);
         Cell tK = totRow.getCell(10); tK.setCellStyle(totalsDecimal);
         Cell tL = totRow.getCell(11); tL.setCellStyle(totalsDecimal);
@@ -496,17 +517,11 @@ public class ExcelExportController {
         sumHdr.getCell(15).setCellValue("MONTHLY SUMMARY");
         sheet.addMergedRegion(new CellRangeAddress(sR, sR, 15, 18));
 
-        // ── Compute summary metrics (5-row summary) ────────────────────────────
-        // Days Logged       = all submitted entries (any type, any hours).
-        // Regular Hours     = approved reg hours from any entry type.
-        // Overtime Hours    = approved OT hours (otStatus = Approved).
-        // Weekends/Holidays = count of submitted weekend OR holiday entries.
-        //                     Uses isWeekend flag so calendar weekends with
-        //                     type changed to "Working Day" are still counted.
-        // Total Hours Worked = Regular Hours + Overtime Hours.
+        // ── Compute summary metrics (6-row summary) ────────────────────────────
         double daysLoggedCount  = 0;   // all submitted
         double wkndHolDaysCount = 0;   // weekend + holiday submitted days
         double regHrsTotal      = 0.0;
+        double wkndHolHrsTotal  = 0.0; // Total weekends & Holiday hours worked
         double otHrsTotal       = 0.0;
 
         if (rows != null) {
@@ -516,7 +531,6 @@ public class ExcelExportController {
                 String type     = str(r.get("type")).trim();
                 String regHrs   = str(r.get("regHrs")).trim();
                 String otHrs    = str(r.get("otHrs")).trim();
-                // isWeekend is sent as "true"/"false" string from the frontend
                 boolean isWeekend = "true".equalsIgnoreCase(str(r.get("isWeekend")));
 
                 boolean isSubmitted = !status.isEmpty() && !"Draft".equalsIgnoreCase(status);
@@ -534,31 +548,40 @@ public class ExcelExportController {
 
                 // Hours: approved entries only
                 if ("Approved".equalsIgnoreCase(status)) {
-                    // Regular Hours: reg hours from any approved entry
+                    double rHrs = 0.0;
                     if (!regHrs.isEmpty() && !"--".equals(regHrs)) {
-                        regHrsTotal += parseTimeToDecimal(regHrs);
+                        rHrs = parseTimeToDecimal(regHrs);
                     }
-                    // Overtime Hours: only where OT is also approved
+                    double oHrs = 0.0;
                     if ("Approved".equalsIgnoreCase(otStatus)
                             && !otHrs.isEmpty() && !"--".equals(otHrs)) {
-                        otHrsTotal += parseTimeToDecimal(otHrs);
+                        oHrs = parseTimeToDecimal(otHrs);
+                    }
+
+                    if (isWkndOrHol) {
+                        wkndHolHrsTotal += (rHrs + oHrs);
+                        otHrsTotal += (rHrs + oHrs); // all hours worked on weekends/holidays count as OT
+                    } else {
+                        regHrsTotal += rHrs;
+                        otHrsTotal += oHrs;
                     }
                 }
             }
         }
-        double totHrsTotal = regHrsTotal + otHrsTotal;
+        double totHrsTotal = regHrsTotal + (otHrsTotal - wkndHolHrsTotal) + wkndHolHrsTotal; // equivalent to regHrsTotal + otHrsTotal
 
         // Weekend/Holiday count uses integer format; hours use decimal (0.00).
         XSSFCellStyle sumValueWkndHolInt = cloneWithBg(workbook, sumValueStyle, wkndHrsBg);
         sumValueWkndHolInt.setDataFormat(df.getFormat("0"));
 
-        // Summary rows: exactly 5 items as specified
-        putSummaryRow(sheet, sR+1, "Days Logged",        sumLabelDays, sumValueDays, null, daysLoggedCount);
-        putSummaryRow(sheet, sR+2, "Regular Hours",      sumLabelReg,  sumValueReg,  null, regHrsTotal);
-        putSummaryRow(sheet, sR+3, "Overtime Hours",     sumLabelOt,   sumValueOt,   null, otHrsTotal);
-        putSummaryRow(sheet, sR+4, "Weekends/Holidays",  sumLabelWknd, sumValueWkndHolInt, null, wkndHolDaysCount);
-        putSummaryRow(sheet, sR+5, "Total Hours Worked", sumLabelTot,  sumValueTot,  null, totHrsTotal);
-        for (int r = sR+1; r <= sR+5; r++) sheet.addMergedRegion(new CellRangeAddress(r, r, 15, 17));
+        // Summary rows: exactly 6 items as specified
+        putSummaryRow(sheet, sR+1, "Days logged",                          sumLabelDays, sumValueDays, null, daysLoggedCount);
+        putSummaryRow(sheet, sR+2, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt, null, wkndHolDaysCount);
+        putSummaryRow(sheet, sR+3, "Total regular Hours worked",           sumLabelReg,  sumValueReg,  null, regHrsTotal);
+        putSummaryRow(sheet, sR+4, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd, null, wkndHolHrsTotal);
+        putSummaryRow(sheet, sR+5, "Total OverTime Hours Worked",          sumLabelOt,   sumValueOt,   null, otHrsTotal);
+        putSummaryRow(sheet, sR+6, "Total Hours worked.",                 sumLabelTot,  sumValueTot,  null, totHrsTotal);
+        for (int r = sR+1; r <= sR+6; r++) sheet.addMergedRegion(new CellRangeAddress(r, r, 15, 17));
 
         // â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         int footerIdx = totIdx + 2;
@@ -588,7 +611,7 @@ public class ExcelExportController {
                 }
             }
         }
-        sheet.createFreezePane(0, 8);
+        sheet.createFreezePane(0, 7);
     }
 
     /** Clone a CellStyle, replacing only its fill colour */

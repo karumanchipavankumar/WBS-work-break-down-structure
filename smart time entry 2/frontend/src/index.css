@@ -626,3 +626,14 @@ input::-ms-clear {
   border-color: var(--rose) !important;
   box-shadow: 0 0 0 2px rgba(217, 79, 79, 0.2) !important;
 }
+
+@media (min-width: 1024px) {
+  .main-content {
+    zoom: 80%;
+  }
+}
+
+/* Ensure confetti canvas is always on top of modals */
+canvas {
+  z-index: 999999 !important;
+}

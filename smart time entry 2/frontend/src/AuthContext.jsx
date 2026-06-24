@@ -17,6 +17,8 @@ export const AuthProvider = ({ children }) => {
   });
 
   const [isSessionExpired, setIsSessionExpired] = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
+  const [countdownTime, setCountdownTime] = useState(30);
 
   const triggerSessionExpired = () => {
     setIsSessionExpired(true);
@@ -28,6 +30,7 @@ export const AuthProvider = ({ children }) => {
       console.error("Cleanup error during inactivity logout:", err);
     }
     window.history.replaceState({ appState: 'logged-out' }, '', window.location.href);
+    setUser(null);
   };
 
   // Listen to custom DOM event from api.js response interceptor
@@ -115,6 +118,7 @@ export const AuthProvider = ({ children }) => {
 
     const resetTimer = () => {
       localStorage.setItem('lastActivity', Date.now().toString());
+      setShowWarning(false);
     };
 
     const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
@@ -126,11 +130,21 @@ export const AuthProvider = ({ children }) => {
       const lastActivity = localStorage.getItem('lastActivity');
       if (lastActivity) {
         const diff = Date.now() - Number(lastActivity);
-        if (diff > 5 * 60 * 1000) { // 5 minutes inactivity
+        const warningThreshold = 4.5 * 60 * 1000; // 4.5 minutes inactivity
+        const maxThreshold = 5 * 60 * 1000;       // 5 minutes inactivity
+
+        if (diff >= maxThreshold) {
+          setShowWarning(false);
           triggerSessionExpired();
+        } else if (diff >= warningThreshold) {
+          const remainingSeconds = Math.max(0, Math.ceil((maxThreshold - diff) / 1000));
+          setCountdownTime(remainingSeconds);
+          setShowWarning(true);
+        } else {
+          setShowWarning(false);
         }
       }
-    }, 2000);
+    }, 1000);
 
     return () => {
       clearInterval(checkInterval);
@@ -183,6 +197,52 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{ user, login, logout, loading, isSessionExpired, setIsSessionExpired }}>
       {children}
+      {showWarning && (
+        <div className="modal-overlay open" style={{ zIndex: 1000000 }}>
+          <div className="modal" style={{
+            maxWidth: '400px',
+            borderRadius: '16px',
+            padding: '30px',
+            textAlign: 'center',
+            boxShadow: 'var(--shadow-lg)',
+            animation: 'popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.1)'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--amber-pale)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px',
+              color: 'var(--amber)'
+            }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <h3 style={{ color: 'var(--navy)', fontSize: '18px', fontWeight: '700', marginBottom: '10px' }}>
+              Session Expiring
+            </h3>
+            <p style={{ color: 'var(--text-mid)', fontSize: '14px', marginBottom: '24px', lineHeight: '1.5' }}>
+              Your session will expire in <strong style={{ color: 'var(--rose)', fontSize: '15px' }}>{countdownTime} seconds</strong> due to inactivity.
+            </p>
+            <button 
+              className="btn btn-teal btn-md" 
+              onClick={() => {
+                localStorage.setItem('lastActivity', Date.now().toString());
+                setShowWarning(false);
+              }}
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '13.5px' }}
+            >
+              Keep Session Active
+            </button>
+          </div>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 };
