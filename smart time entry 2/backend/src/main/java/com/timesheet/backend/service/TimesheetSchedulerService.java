@@ -96,7 +96,7 @@ public class TimesheetSchedulerService {
                 "According to our records, the following days have incomplete or unfilled hours:\n" +
                 datesList.toString() + "\n" +
                 "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
-                "http://wbs.oryfolks.com/\n\n" +
+                "https://timesheet.idealfolks.com/\n\n" +
                 "Submission Deadline: Please ensure all entries are updated by Friday end of day.\n\n" +
                 "Best Regards,\nSmart Time Entry Team";
 
@@ -220,7 +220,7 @@ public class TimesheetSchedulerService {
             html.append("<p style='color: #0d9488; font-weight: bold;'>Excellent! All employees have completed their timesheet entries for this week.</p>");
         }
 
-        html.append("<br/><a href='http://wbs.oryfolks.com/' class='btn'>Go to Admin Dashboard</a>")
+        html.append("<br/><a href='https://timesheet.idealfolks.com/' class='btn'>Go to Admin Dashboard</a>")
             .append("<br/><br/><p>Best Regards,<br/>Smart Time Entry Team</p>")
             .append("</body></html>");
 
@@ -241,7 +241,7 @@ public class TimesheetSchedulerService {
                 String body = "Hello " + emp.getName() + ",\n\n" +
                         "This is a friendly reminder to complete your timesheet entries for this month.\n\n" +
                         "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
-                        "http://wbs.oryfolks.com/\n\n" +
+                        "https://timesheet.idealfolks.com/\n\n" +
                         "Submission Deadline: Please ensure all entries are updated by the end of today.\n\n" +
                         "Best Regards,\nSmart Time Entry Team";
                 emailService.sendSimpleEmail(emp.getEmail(), subject, body);
@@ -261,7 +261,7 @@ public class TimesheetSchedulerService {
                 String body = "Hello " + admin.getName() + ",\n\n" +
                         "This is a monthly reminder to review timesheet compliance, check employee submissions, and finalize approvals for this month.\n\n" +
                         "Please log in to the Admin Dashboard to check timesheet statuses:\n" +
-                        "http://wbs.oryfolks.com/\n\n" +
+                        "https://timesheet.idealfolks.com/\n\n" +
                         "Best Regards,\nSmart Time Entry Team";
                 emailService.sendSimpleEmail(admin.getEmail(), subject, body);
             }
