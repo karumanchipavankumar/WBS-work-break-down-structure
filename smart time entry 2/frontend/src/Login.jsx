@@ -3,6 +3,79 @@ import { AuthContext } from './AuthContext';
 import api from './api';
 import { showAlert } from './AppModals';
 
+const validatePasswordComplexity = (password, personalInfo = {}) => {
+  const rules = {
+    length: password.length >= 8 && password.length <= 32,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    specialChar: /[@#\$%&\*!\?]/.test(password) || /[^A-Za-z0-9]/.test(password),
+    noSpaces: !/\s/.test(password),
+    noPersonalInfo: true
+  };
+
+  if (password) {
+    const pwdLower = password.toLowerCase();
+    const checks = [];
+    if (personalInfo.empId) checks.push(personalInfo.empId.toLowerCase());
+    if (personalInfo.email) {
+      checks.push(personalInfo.email.toLowerCase());
+      const parts = personalInfo.email.split('@');
+      if (parts[0]) checks.push(parts[0].toLowerCase());
+    }
+    if (personalInfo.name) {
+      checks.push(personalInfo.name.toLowerCase());
+      const nameParts = personalInfo.name.split(/\s+/);
+      nameParts.forEach(p => {
+        if (p.length > 2) checks.push(p.toLowerCase());
+      });
+    }
+
+    for (const info of checks) {
+      if (info && pwdLower.includes(info)) {
+        rules.noPersonalInfo = false;
+        break;
+      }
+    }
+  } else {
+    rules.noPersonalInfo = false;
+  }
+
+  let score = 0;
+  if (rules.length) score++;
+  if (rules.uppercase) score++;
+  if (rules.lowercase) score++;
+  if (rules.number) score++;
+  if (rules.specialChar) score++;
+  if (rules.noSpaces) score++;
+  if (rules.noPersonalInfo) score++;
+
+  let strength = 'Weak';
+  if (score >= 6) {
+    strength = 'Strong';
+  } else if (score >= 4) {
+    strength = 'Medium';
+  }
+
+  const messages = [];
+  if (!rules.length) messages.push("Password must be between 8 and 32 characters.");
+  if (!rules.uppercase) messages.push("Password must contain at least one uppercase letter.");
+  if (!rules.lowercase) messages.push("Password must contain at least one lowercase letter.");
+  if (!rules.number) messages.push("Password must contain at least one number.");
+  if (!rules.specialChar) messages.push("Password must contain at least one special character.");
+  if (!rules.noSpaces) messages.push("Password cannot contain spaces.");
+  if (!rules.noPersonalInfo) messages.push("Password cannot contain personal information.");
+
+  const allValid = Object.values(rules).every(v => v === true);
+
+  return {
+    rules,
+    strength,
+    messages,
+    allValid
+  };
+};
+
 export default function Login() {
   const { login } = useContext(AuthContext);
   const [role, setRole] = useState('employee');
@@ -63,6 +136,10 @@ export default function Login() {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+
+  const personalInfo = { email: recoveryInput };
+  const complexity = validatePasswordComplexity(newPass, personalInfo);
+  const isSubmitDisabled = !complexity.allValid || newPass !== confirmPass || !resetCode.trim();
 
   useEffect(() => {
     if (resendTimer > 0) {
@@ -226,8 +303,10 @@ export default function Login() {
       if (confirmPassRef.current) confirmPassRef.current.focus();
       return;
     }
-    if (newPass.length < 6) {
-      setError('Password must be at least 6 characters.');
+    const personalInfo = { email: recoveryInput };
+    const complexity = validatePasswordComplexity(newPass, personalInfo);
+    if (!complexity.allValid) {
+      setError(complexity.messages[0]);
       setNewPassError(true);
       if (newPassRef.current) newPassRef.current.focus();
       return;
@@ -244,7 +323,7 @@ export default function Login() {
       const res = await api.post('/auth/reset-password', { 
         input: recoveryInput.trim(), 
         code: resetCode.trim(), 
-        newPassword: newPass 
+        newPassword: 'base64:' + btoa(unescape(encodeURIComponent(newPass)))
       });
       await showAlert(res.data.message, { title: 'Password Updated' });
       setShowForgot(false);
@@ -375,6 +454,65 @@ export default function Login() {
                     )}
                   </button>
                 </div>
+
+                {/* Password Strength Indicator */}
+                {newPass && (
+                  <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 'bold', marginBottom: '4px' }}>
+                      <span style={{ color: '#64748b' }}>Password Strength:</span>
+                      <span style={{ color: complexity.strength === 'Strong' ? '#16a34a' : (complexity.strength === 'Medium' ? '#ea580c' : '#dc2626') }}>
+                        {complexity.strength}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        width: complexity.strength === 'Strong' ? '100%' : (complexity.strength === 'Medium' ? '66%' : '33%'),
+                        background: complexity.strength === 'Strong' ? '#16a34a' : (complexity.strength === 'Medium' ? '#ea580c' : '#dc2626'),
+                        borderRadius: '2px',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Password Validation Requirements checklist */}
+                <div style={{
+                  marginTop: '8px',
+                  padding: '12px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '11.5px',
+                  color: '#475569',
+                  textAlign: 'left'
+                }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Password Requirements:
+                  </div>
+                  <ul style={{ listStyleType: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.length ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.length ? '✓' : '•'}</span> 8 to 32 characters long
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.uppercase ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.uppercase ? '✓' : '•'}</span> At least one uppercase letter (A–Z)
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.lowercase ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.lowercase ? '✓' : '•'}</span> At least one lowercase letter (a–z)
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.number ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.number ? '✓' : '•'}</span> At least one numeric digit (0–9)
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.specialChar ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.specialChar ? '✓' : '•'}</span> At least one special character (@, #, $, %, etc.)
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.noSpaces ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.noSpaces ? '✓' : '•'}</span> No spaces allowed
+                    </li>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '6px', color: complexity.rules.noPersonalInfo ? '#16a34a' : '#64748b' }}>
+                      <span style={{ fontWeight: 'bold' }}>{complexity.rules.noPersonalInfo ? '✓' : '•'}</span> Cannot contain personal information
+                    </li>
+                  </ul>
+                </div>
               </div>
 
               <div className="form-group" style={{ marginBottom: '20px' }}>
@@ -416,8 +554,11 @@ export default function Login() {
               <button 
                 type="submit"
                 className="btn-login" 
-                style={{ disabled: resetLoading }} 
-                disabled={resetLoading}
+                style={{
+                  opacity: (resetLoading || isSubmitDisabled) ? 0.5 : 1,
+                  cursor: (resetLoading || isSubmitDisabled) ? 'not-allowed' : 'pointer'
+                }} 
+                disabled={resetLoading || isSubmitDisabled}
               >
                 {resetLoading ? 'Updating Password...' : 'Reset Password'}
               </button>

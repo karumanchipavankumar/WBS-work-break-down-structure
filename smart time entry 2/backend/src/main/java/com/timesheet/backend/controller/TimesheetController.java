@@ -27,6 +27,18 @@ public class TimesheetController {
     @Autowired
     private NotificationService notificationService;
 
+    private String cleanText(String val) {
+        if (val == null) return null;
+        String cleaned = val.replaceAll("<[^>]*>", "");
+        String[] lines = cleaned.split("\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String cleanLine = line.replaceAll("[ \\t]+", " ").trim();
+            sb.append(cleanLine).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     @GetMapping("/{empId}/{year}/{month}")
     public ResponseEntity<?> getTimesheets(@PathVariable String empId, @PathVariable String year, @PathVariable String month) {
         User user = userRepo.findByEmpId(empId).orElse(null);
@@ -44,6 +56,22 @@ public class TimesheetController {
     
     @PostMapping("/save")
     public ResponseEntity<?> saveTimesheet(@RequestBody TimesheetEntry entry) {
+        if (entry.getShortHoursReason() != null) {
+            entry.setShortHoursReason(cleanText(entry.getShortHoursReason()));
+        }
+        if (entry.getOtReason() != null) {
+            entry.setOtReason(cleanText(entry.getOtReason()));
+        }
+        if (entry.getOtRemarks() != null) {
+            entry.setOtRemarks(cleanText(entry.getOtRemarks()));
+        }
+        if (entry.getRejectionReason() != null) {
+            entry.setRejectionReason(cleanText(entry.getRejectionReason()));
+        }
+        if (entry.getOtRejectionReason() != null) {
+            entry.setOtRejectionReason(cleanText(entry.getOtRejectionReason()));
+        }
+
         if (entry.getUser() != null && entry.getUser().getId() != null) {
             userRepo.findById(entry.getUser().getId()).ifPresent(entry::setUser);
         }

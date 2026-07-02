@@ -434,6 +434,13 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       setStatusSuccessMessage(successText);
       setTimeout(() => setStatusSuccessMessage(''), 3000);
 
+      if (selectedEmployee && selectedEmployee.id === selectedEmpForStatus.id) {
+        onSelectEmployee({
+          ...selectedEmployee,
+          enabled: statusAction !== 'disable'
+        });
+      }
+
       loadEmployees();
       if (isAuditModalOpen) {
         loadAuditLogs();

@@ -39,6 +39,18 @@ public class AdminController {
     @Autowired
     private com.timesheet.backend.repository.EmailDomainRepository emailDomainRepository;
 
+    private String cleanText(String val) {
+        if (val == null) return null;
+        String cleaned = val.replaceAll("<[^>]*>", "");
+        String[] lines = cleaned.split("\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String cleanLine = line.replaceAll("[ \\t]+", " ").trim();
+            sb.append(cleanLine).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     @GetMapping("/employees")
     public ResponseEntity<List<User>> getAllEmployees() {
         return ResponseEntity.ok(userRepository.findAll());
@@ -607,7 +619,7 @@ public class AdminController {
     @PostMapping("/timesheets/{id}/reject")
     public ResponseEntity<?> rejectTimesheet(@PathVariable Long id, @RequestBody Map<String, String> body) {
         return timesheetRepo.findById(id).map(entry -> {
-            String reason = body.get("reason");
+            String reason = cleanText(body.get("reason"));
             entry.setStatus("Rejected");
             entry.setRejectionReason(reason);
             if (entry.getOtStatus() != null && !entry.getOtStatus().trim().isEmpty() && !entry.getOtStatus().equals("Rejected")) {
@@ -652,13 +664,13 @@ public class AdminController {
     @PostMapping("/timesheets/{id}/ot/grant-resubmit")
     public ResponseEntity<?> grantOtResubmit(@PathVariable Long id, @RequestBody Map<String, String> body) {
         return timesheetRepo.findById(id).map(entry -> {
-            String message = body.get("message");
+            String message = cleanText(body.get("message"));
             if (message == null || message.trim().isEmpty()) {
                 message = "Granted access for Resubmit OT application";
             }
             entry.setOtResubmissionGranted(true);
             entry.setOtResubmissionUsed(false);
-            entry.setOtResubmissionMessage(message.trim());
+            entry.setOtResubmissionMessage(message);
             TimesheetEntry saved = timesheetRepo.save(entry);
             String empId = saved.getUser().getEmpId();
             String empName = saved.getUser().getName();
@@ -675,7 +687,7 @@ public class AdminController {
     @PostMapping("/timesheets/{id}/ot/reject")
     public ResponseEntity<?> rejectOT(@PathVariable Long id, @RequestBody Map<String, String> body) {
         return timesheetRepo.findById(id).map(entry -> {
-            String reason = body.get("reason");
+            String reason = cleanText(body.get("reason"));
             entry.setOtStatus("Rejected");
             entry.setOtRejectionReason(reason);
             entry.setStatus("Resubmit OT");

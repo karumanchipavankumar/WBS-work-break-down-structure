@@ -12,7 +12,35 @@ const safeErrorText = (err, fallback) => {
     const msg = data.message ?? data.error;
     return typeof msg === 'string' ? msg : fallback;
   }
-  return String(data);
+};
+
+const validateAndCleanReason = (text, fieldName = 'Reason') => {
+  if (!text) {
+    return { isValid: false, cleaned: '', error: `${fieldName} is mandatory.` };
+  }
+  // Sanitize input to prevent HTML/JavaScript/XML injection by stripping tags
+  let sanitized = text.replace(/<[^>]*>/g, '');
+  
+  // Normalize spacing on each line while preserving line breaks
+  const lines = sanitized.split('\n');
+  const cleanedLines = lines.map(line => line.replace(/[ \t]+/g, ' ').trim());
+  let cleaned = cleanedLines.join('\n').trim();
+  
+  if (!cleaned) {
+    return { isValid: false, cleaned: '', error: `${fieldName} is mandatory.` };
+  }
+  
+  // Count words: split by whitespace
+  const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+  if (words.length > 320) {
+    return { isValid: false, cleaned, error: 'Reason cannot exceed 320 words.' };
+  }
+  
+  if (cleaned.length < 10) {
+    return { isValid: false, cleaned, error: `${fieldName} must be at least 10 characters.` };
+  }
+  
+  return { isValid: true, cleaned, error: '' };
 };
 
 const isPastDeadline = (dateStr) => {
@@ -1298,15 +1326,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   };
 
   const handleShortHoursSubmit = async () => {
-    if (!shortHoursReasonText.trim()) {
-      setShortHoursError("Reason is mandatory.");
-      return;
-    }
-    if (shortHoursReasonText.trim().length < 10) {
-      setShortHoursError("Reason must be at least 10 characters.");
+    const check = validateAndCleanReason(shortHoursReasonText);
+    if (!check.isValid) {
+      setShortHoursError(check.error);
       return;
     }
     setShortHoursError('');
+    const cleanedReason = check.cleaned;
 
     const dateStr = shortHoursModalData.date;
     let row = editedRows[dateStr] || entries[dateStr] || { date: dateStr, type: 'Working Day', user: { id: employee.id } };
@@ -1320,7 +1346,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
     const updatedRow = {
       ...row,
-      shortHoursReason: shortHoursReasonText.trim(),
+      shortHoursReason: cleanedReason,
       status: targetStatus,
       submitted: true
     };
@@ -1366,18 +1392,15 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   };
 
   const handleAdminShortHoursRejectSubmit = async () => {
-    if (!adminRejectionText.trim()) {
-      setAdminShortHoursError("Rejection reason is required.");
-      return;
-    }
-    if (adminRejectionText.trim().length < 10) {
-      setAdminShortHoursError("Rejection reason must be at least 10 characters.");
+    const check = validateAndCleanReason(adminRejectionText, 'Rejection reason');
+    if (!check.isValid) {
+      setAdminShortHoursError(check.error);
       return;
     }
     setAdminShortHoursError('');
     setProcessingMessage('Rejecting timesheet...');
     try {
-      const formattedReason = formatReasonText(adminRejectionText);
+      const formattedReason = check.cleaned;
       await api.post(`/admin/timesheets/${adminShortHoursModalData.id}/reject`, { reason: formattedReason });
       setIsAdminShortHoursModalOpen(false);
       setAdminShortHoursModalData(null);
@@ -1464,11 +1487,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleRejectSubmit = async () => {
     const { entryId, isOT, reason, dateStr } = rejectModal;
-    if (!reason || reason.trim().length < 10) {
+    const check = validateAndCleanReason(reason, 'Rejection reason');
+    if (!check.isValid) {
       setRejectModal(prev => ({ 
         ...prev, 
         hasError: true, 
-        errorMsg: !reason?.trim() ? 'Rejection reason is required.' : 'Reason must be at least 10 characters.' 
+        errorMsg: check.error
       }));
       setTimeout(() => {
         const el = document.getElementById("reject-reason");
@@ -1477,7 +1501,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return;
     }
     
-    const formattedReason = formatReasonText(reason);
+    const formattedReason = check.cleaned;
     
     setProcessingMessage(isOT ? 'Rejecting OT request...' : 'Rejecting timesheet...');
     setRejectModal({ ...rejectModal, isOpen: false });
@@ -1550,8 +1574,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleGrantResubmit = async () => {
     const { entryId, message, dateStr } = grantModal;
-    if (!message || message.trim() === '') {
-      setGrantModal(prev => ({ ...prev, hasError: true }));
+    const check = validateAndCleanReason(message, 'Message');
+    if (!check.isValid) {
+      setGrantModal(prev => ({ ...prev, hasError: true, errorMsg: check.error }));
       setTimeout(() => {
         const el = document.getElementById("grant-message");
         if (el) el.focus();
@@ -1561,7 +1586,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     setProcessingMessage('Granting resubmission access...');
     setGrantModal({ ...grantModal, isOpen: false });
     try {
-      await api.post(`/admin/timesheets/${entryId}/ot/grant-resubmit`, { message });
+      const finalMsg = check.cleaned;
+      await api.post(`/admin/timesheets/${entryId}/ot/grant-resubmit`, { message: finalMsg });
       await loadData(dateStr);
       setProcessingMessage(null);
       setToast({ type: 'success', text: 'Resubmission access granted successfully!' });
@@ -1612,13 +1638,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   };
 
   const handleOTSubmit = async (status) => {
-    const formattedReason = formatReasonText(otModal.reason);
-    const formattedRemarks = formatReasonText(otModal.remarks || '');
-    if (!formattedReason || formattedReason.trim().length < 10) {
+    const checkReason = validateAndCleanReason(otModal.reason, 'OT Reason');
+    if (!checkReason.isValid) {
       setOtModal(prev => ({ 
         ...prev, 
         hasError: true, 
-        errorMsg: !formattedReason.trim() ? 'OT Reason is required.' : 'Reason must be at least 10 characters.' 
+        errorMsg: checkReason.error 
       }));
       setTimeout(() => {
         const el = document.getElementById("ot-reason");
@@ -1626,6 +1651,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       }, 50);
       return;
     }
+    const formattedReason = checkReason.cleaned;
+    const formattedRemarks = otModal.remarks ? otModal.remarks.replace(/<[^>]*>/g, '').replace(/[ \t]+/g, ' ').trim() : '';
     if (!otModal.clientApproved) {
       return;
     }
@@ -2170,9 +2197,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 <th className="grp" colSpan={2} style={{ background: '#1d5c4a', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #1d5c4a' }}>Morning Session</th>
                 <th className="grp" colSpan={2} style={{ background: '#3a4f8a', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #3a4f8a' }}>Lunch Break</th>
                 <th className="grp" colSpan={2} style={{ background: '#1d5c4a', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #1d5c4a' }}>Afternoon Session</th>
-                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360' }}>Reg Hrs</th>
-                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360' }}>OT Hrs</th>
-                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360' }}>Total</th>
+                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360', textTransform: 'none' }}>REG Hrs</th>
+                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360', textTransform: 'none' }}>OT Hrs</th>
+                <th rowSpan={2} style={{ background: '#1f3360', borderRight: 'none', boxShadow: '0 0 0 0.5px #1f3360', textTransform: 'none' }}>TOTAL Hrs</th>
                 <th rowSpan={2} style={{ background: '#455fa0', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #455fa0' }}>OT</th>
                 <th rowSpan={2} style={{ background: 'var(--navy)', borderRight: 'none', boxShadow: '0 0 0 0.5px var(--navy)' }}>Status</th>
               </tr>
@@ -2927,7 +2954,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               )}
 
               {otModal.isReapply && otModal.rejectionReason && (
-                <div style={{background:'#fff1f2', color:'#9f1239', padding:'8px', borderRadius:'6px', border:'1px solid #fecdd3', fontSize:'12px', marginBottom:'12px'}}>
+                <div style={{background:'#fff1f2', color:'#9f1239', padding:'8px', borderRadius:'6px', border:'1px solid #fecdd3', fontSize:'12px', marginBottom:'12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word'}}>
                   <strong>Rejection Reason:</strong> {otModal.rejectionReason}
                 </div>
               )}
@@ -3035,7 +3062,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             />
             {grantModal.hasError && (
               <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
-                Message is required.
+                {grantModal.errorMsg || 'Message is required.'}
               </span>
             )}
           </div>
@@ -3095,7 +3122,17 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             }
           >
             <div style={{padding: '20px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5', background: '#f9fafb', borderRadius: '4px', margin: '0 10px'}}>
-               <div style={{padding: '10px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '4px'}}>
+               <div style={{
+                 padding: '10px', 
+                 background: '#fff', 
+                 border: '1px solid #e5e7eb', 
+                 borderRadius: '4px',
+                 maxHeight: '300px',
+                 overflowY: 'auto',
+                 whiteSpace: 'pre-wrap',
+                 wordBreak: 'break-word',
+                 overflowWrap: 'break-word'
+               }}>
                  {reasonViewModal.reason || "No reason provided."}
                </div>
                

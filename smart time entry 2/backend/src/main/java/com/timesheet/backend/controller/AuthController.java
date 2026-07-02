@@ -31,10 +31,22 @@ public class AuthController {
     @Autowired
     private com.timesheet.backend.service.EmailService emailService;
 
+    private String decodePasswordIfEncoded(String password) {
+        if (password != null && password.startsWith("base64:")) {
+            try {
+                byte[] decoded = java.util.Base64.getDecoder().decode(password.substring(7));
+                return new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return password;
+            }
+        }
+        return password;
+    }
+
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credentials) {
         String empId = credentials.get("empId");
-        String password = credentials.get("password");
+        String password = decodePasswordIfEncoded(credentials.get("password"));
 
         if (empId != null) {
             empId = empId.trim();
@@ -244,7 +256,7 @@ public class AuthController {
             input = body.get("email"); // fallback
         }
         String code = body.get("code");
-        String newPassword = body.get("newPassword");
+        String newPassword = decodePasswordIfEncoded(body.get("newPassword"));
 
         if (input == null || input.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Email address is required."));
@@ -328,7 +340,8 @@ public class AuthController {
             return ResponseEntity.ok(Map.of(
                 "valid", true,
                 "name", userOpt.get().getName(),
-                "empId", userOpt.get().getEmpId()
+                "empId", userOpt.get().getEmpId(),
+                "email", userOpt.get().getEmail()
             ));
         }
         return ResponseEntity.ok(Map.of("valid", false, "message", "Invalid, expired, or already used link."));
@@ -337,8 +350,8 @@ public class AuthController {
     @PostMapping("/reset-one-time-password")
     public ResponseEntity<?> resetOneTimePassword(@RequestBody Map<String, String> body) {
         String token = body.get("token");
-        String oldPassword = body.get("oldPassword");
-        String newPassword = body.get("newPassword");
+        String oldPassword = decodePasswordIfEncoded(body.get("oldPassword"));
+        String newPassword = decodePasswordIfEncoded(body.get("newPassword"));
 
         if (token == null || token.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Token is required."));

@@ -156,7 +156,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (empId, pass) => {
     try {
-      const res = await api.post('/auth/login', { empId, password: pass });
+      const res = await api.post('/auth/login', { empId, password: 'base64:' + btoa(unescape(encodeURIComponent(pass))) });
       sessionStorage.setItem('token', res.data.token);
       sessionStorage.setItem('user', JSON.stringify(res.data.user));
       localStorage.setItem('lastActivity', Date.now().toString());

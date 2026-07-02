@@ -38,23 +38,23 @@ public class TimesheetEntry {
     private String status; // Pending, Approved, Rejected, Draft, Reapproval Pending, Resubmit OT
     private Boolean submitted = false;
     
-    @Column(name = "rejection_reason")
+    @Column(name = "rejection_reason", length = 3000)
     private String rejectionReason;
 
-    @Column(name = "short_hours_reason", length = 1000)
+    @Column(name = "short_hours_reason", length = 3000)
     private String shortHoursReason;
 
     // OT Fields
     @Column(name = "ot_status")
     private String otStatus;
 
-    @Column(name = "ot_reason", length = 1000)
+    @Column(name = "ot_reason", length = 3000)
     private String otReason;
 
-    @Column(name = "ot_remarks", length = 1000)
+    @Column(name = "ot_remarks", length = 3000)
     private String otRemarks;
 
-    @Column(name = "ot_rejection_reason", length = 1000)
+    @Column(name = "ot_rejection_reason", length = 3000)
     private String otRejectionReason;
 
     @Column(name = "client_approved")
@@ -72,7 +72,7 @@ public class TimesheetEntry {
     @Column(name = "ot_resubmission_granted")
     private Boolean otResubmissionGranted = false;
 
-    @Column(name = "ot_resubmission_message", length = 1000)
+    @Column(name = "ot_resubmission_message", length = 3000)
     private String otResubmissionMessage;
 
     @Column(name = "ot_resubmission_used")

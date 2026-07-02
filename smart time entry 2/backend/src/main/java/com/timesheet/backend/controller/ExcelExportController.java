@@ -473,7 +473,7 @@ public class ExcelExportController {
         int totIdx = 7 + numRows;
         Row totRow = sheet.createRow(totIdx); totRow.setHeightInPoints(24);
         for (int i = 0; i < 14; i++) { Cell c = totRow.createCell(i); c.setCellStyle(totalsLabel); }
-        totRow.getCell(0).setCellValue("TOTALS - " + monthLabel);
+        totRow.getCell(0).setCellValue("TOTAL - " + monthLabel);
         sheet.addMergedRegion(new CellRangeAddress(totIdx, totIdx, 0, 8));
 
         int fd = 8, ld = 7 + numRows;
