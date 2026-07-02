@@ -114,7 +114,7 @@ public class TimesheetController {
                         return ResponseEntity.badRequest().body("Both PM In and PM Out must be entered, or both left blank");
                     }
                     if ((hasLunchOut && !hasLunchIn) || (!hasLunchOut && hasLunchIn)) {
-                        return ResponseEntity.badRequest().body("Both Lunch Out and Lunch In must be entered, or both left blank");
+                        return ResponseEntity.badRequest().body("Both Lunch In and Lunch Out must be entered, or both left blank");
                     }
 
                     Integer amIn = hasAmIn ? parseTime(entry.getAmIn()) : null;
@@ -126,8 +126,8 @@ public class TimesheetController {
 
                     if (hasAmIn && amIn == null) return ResponseEntity.badRequest().body("Invalid AM In format");
                     if (hasAmOut && amOut == null) return ResponseEntity.badRequest().body("Invalid AM Out format");
-                    if (hasLunchOut && lunchOut == null) return ResponseEntity.badRequest().body("Invalid Lunch Out format");
-                    if (hasLunchIn && lunchIn == null) return ResponseEntity.badRequest().body("Invalid Lunch In format");
+                    if (hasLunchOut && lunchOut == null) return ResponseEntity.badRequest().body("Invalid Lunch In format");
+                    if (hasLunchIn && lunchIn == null) return ResponseEntity.badRequest().body("Invalid Lunch Out format");
                     if (hasPmIn && pmIn == null) return ResponseEntity.badRequest().body("Invalid PM In format");
                     if (hasPmOut && pmOut == null) return ResponseEntity.badRequest().body("Invalid PM Out format");
 
@@ -138,7 +138,7 @@ public class TimesheetController {
                         return ResponseEntity.badRequest().body("PM Out must be later than PM In");
                     }
                     if (hasLunchOut && hasLunchIn && lunchIn <= lunchOut) {
-                        return ResponseEntity.badRequest().body("Lunch In must be later than Lunch Out");
+                        return ResponseEntity.badRequest().body("Lunch Out must be later than Lunch In");
                     }
                     if (hasAmIn && hasPmOut && pmOut <= amIn) {
                         return ResponseEntity.badRequest().body("PM Out must be later than AM In");
@@ -147,16 +147,16 @@ public class TimesheetController {
                         return ResponseEntity.badRequest().body("PM In must be at or after AM Out");
                     }
                     if (hasLunchOut && hasAmIn && lunchOut < amIn) {
-                        return ResponseEntity.badRequest().body("Lunch Out must be at or after AM In");
+                        return ResponseEntity.badRequest().body("Lunch In must be at or after AM In");
                     }
                     if (hasLunchIn && hasPmOut && pmOut < lunchIn) {
-                        return ResponseEntity.badRequest().body("PM Out must be at or after Lunch In");
+                        return ResponseEntity.badRequest().body("PM Out must be at or after Lunch Out");
                     }
                     if (hasLunchOut && hasAmOut && lunchOut < amOut) {
-                        return ResponseEntity.badRequest().body("Lunch Out must be at or after AM Out");
+                        return ResponseEntity.badRequest().body("Lunch In must be at or after AM Out");
                     }
                     if (hasLunchIn && hasPmIn && pmIn < lunchIn) {
-                        return ResponseEntity.badRequest().body("PM In must be at or after Lunch In");
+                        return ResponseEntity.badRequest().body("PM In must be at or after Lunch Out");
                     }
                 }
             } else {
@@ -179,13 +179,13 @@ public class TimesheetController {
                     return ResponseEntity.badRequest().body("AM Out must be later than AM In");
                 }
                 if (!amOut.equals(lunchOut)) {
-                    return ResponseEntity.badRequest().body("There should be no time gap between AM Out and Lunch Out");
+                    return ResponseEntity.badRequest().body("There should be no time gap between AM Out and Lunch In");
                 }
                 if (lunchIn - lunchOut != 60) {
                     return ResponseEntity.badRequest().body("Lunch break must be exactly one hour");
                 }
                 if (!lunchIn.equals(pmIn)) {
-                    return ResponseEntity.badRequest().body("Lunch In and PM In should not have any time gap");
+                    return ResponseEntity.badRequest().body("Lunch Out and PM In should not have any time gap");
                 }
                 if (pmOut <= pmIn) {
                     return ResponseEntity.badRequest().body("PM Out must be later than PM In");
@@ -319,5 +319,47 @@ public class TimesheetController {
             return false;
         }
         return a.equals(b);
+    }
+
+    @PostMapping("/{id}/leave/resubmit")
+    public ResponseEntity<?> resubmitLeave(@PathVariable Long id) {
+        return timesheetRepo.findById(id).map(entry -> {
+            String type = entry.getType();
+            if (type == null || (!type.equalsIgnoreCase("Paid Leave") && !type.equalsIgnoreCase("Unpaid Leave"))) {
+                return ResponseEntity.badRequest().body("This is not a leave request");
+            }
+            
+            boolean isRejected = "Rejected".equalsIgnoreCase(entry.getStatus());
+            boolean isApprovedWithResubmit = "Approved".equalsIgnoreCase(entry.getStatus()) 
+                && entry.getOtResubmissionGranted() != null && entry.getOtResubmissionGranted()
+                && (entry.getOtResubmissionUsed() == null || !entry.getOtResubmissionUsed());
+                
+            if (!isRejected && !isApprovedWithResubmit) {
+                return ResponseEntity.badRequest().body("Only rejected leave requests or approved leave requests with resubmission permission can be resubmitted");
+            }
+            
+            if (entry.getLeaveReapplyCount() != null && entry.getLeaveReapplyCount() >= 1) {
+                return ResponseEntity.badRequest().body("Leave request can only be resubmitted once");
+            }
+            
+            entry.setStatus("Pending");
+            entry.setSubmitted(true);
+            entry.setRejectionReason(null);
+            if (isApprovedWithResubmit) {
+                entry.setOtResubmissionUsed(true);
+            }
+            entry.setLeaveReapplyCount((entry.getLeaveReapplyCount() == null ? 0 : entry.getLeaveReapplyCount()) + 1);
+            
+            TimesheetEntry saved = timesheetRepo.save(entry);
+            
+            // Notify admins
+            String empId = saved.getUser().getEmpId();
+            String empName = saved.getUser().getName();
+            String dateStr = saved.getDate();
+            String resubmitMsg = notificationService.formatMessage("Timesheet Leave Resubmitted", empName, empId, dateStr, null);
+            notificationService.notifyAllAdmins(resubmitMsg);
+            
+            return ResponseEntity.ok(saved);
+        }).orElse(ResponseEntity.notFound().build());
     }
 }

@@ -290,14 +290,14 @@ const UnifiedTimeSelection = ({ value, onChange, disabled, isError }) => {
           ref={dropdownRef}
           tabIndex={-1}
           className="time-select-dropdown"
-          onClick={(e) => {
-            e.stopPropagation();
+          onMouseDown={(e) => {
+            e.preventDefault();
           }}
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
             left: 0,
-            zIndex: 1000,
+            zIndex: 15,
             maxHeight: '160px',
             overflowY: 'auto',
             background: '#fff',
@@ -358,7 +358,23 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     window.scrollTo(0, 0);
   }, []);
 
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('timesheet_current_date');
+      return saved ? new Date(saved) : new Date();
+    } catch (e) {
+      return new Date();
+    }
+  });
+
+  useEffect(() => {
+    if (currentDate) {
+      try {
+        sessionStorage.setItem('timesheet_current_date', currentDate.toISOString());
+      } catch (e) {}
+    }
+  }, [currentDate]);
+
   const [entries, setEntries] = useState({});
   const [editedRows, setEditedRows] = useState({});
   const [rejectionReasons, setRejectionReasons] = useState({});
@@ -367,6 +383,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [rejectModal, setRejectModal] = useState({ isOpen: false, entryId: null, dateStr: '', isOT: false, reason: '', hasError: false });
   const [grantModal, setGrantModal] = useState({ isOpen: false, entryId: null, dateStr: '', message: 'Granted access for Resubmit OT application', hasError: false });
   const [reasonViewModal, setReasonViewModal] = useState({ isOpen: false, reason: '', title: '' });
+  const [leaveResubmitStage, setLeaveResubmitStage] = useState('initial');
   const [imgPreview, setImgPreview] = useState(null);
   const [initialOtData, setInitialOtData] = useState(null);
   const [exportModal, setExportModal] = useState({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '' });
@@ -405,6 +422,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [isCheckingContactProfile, setIsCheckingContactProfile] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
+
+  useEffect(() => {
+    if (!reasonViewModal.isOpen) {
+      setLeaveResubmitStage('initial');
+    }
+  }, [reasonViewModal.isOpen]);
 
   const isProfileDirty = () => {
     if (!isEditingProfile) return false;
@@ -738,6 +761,57 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     </svg>
   );
 
+  const handleLeaveResubmit = async (entry) => {
+    const confirmResubmit = await showConfirm(
+      "Are you sure you want to resubmit this leave request? You can only resubmit this leave request once. If it is rejected again, the rejection will be considered final.",
+      {
+        title: "Resubmit Leave Request?",
+        type: "leave",
+        confirmLabel: "Resubmit",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmResubmit) return;
+
+    setProcessingMessage('Resubmitting leave request...');
+    try {
+      const dateStr = entry.date;
+      if (editedRows[dateStr]) {
+        let row = editedRows[dateStr];
+        if (!row.id && entry.id) {
+          row.id = entry.id;
+        }
+        if (!row.user || !row.user.id) {
+          row.user = { id: employee.id };
+        }
+        await api.post('/timesheets/save', cleanPayload(row));
+        setEditedRows(prev => {
+          const next = { ...prev };
+          delete next[dateStr];
+          return next;
+        });
+      }
+
+      const res = await api.post(`/timesheets/${entry.id}/leave/resubmit`);
+      
+      setEntries(prev => ({
+        ...prev,
+        [dateStr]: res.data
+      }));
+
+      setReasonViewModal({ isOpen: false, reason: '', title: '', dateStr: '' });
+      setToast({ type: 'success', text: 'Leave request resubmitted successfully!' });
+      setTimeout(() => {
+        setToast(prev => prev.text === 'Leave request resubmitted successfully!' ? { type: '', text: '' } : prev);
+      }, 5000);
+    } catch (e) {
+      const errMsg = safeErrorText(e, 'Failed to resubmit leave request');
+      await showAlert(errMsg, { title: 'Resubmit Error', type: 'warn' });
+    } finally {
+      setProcessingMessage(null);
+    }
+  };
+
   const reapplyOT = (row) => {
     setReasonViewModal({ isOpen: false, reason: '', title: '' });
     openOtModal({
@@ -893,8 +967,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const TIME_FIELDS = {
       amIn: 'AM In',
       amOut: 'AM Out',
-      lunchOut: 'Lunch Out',
-      lunchIn: 'Lunch In',
+      lunchOut: 'Lunch In',
+      lunchIn: 'Lunch Out',
       pmIn: 'PM In',
       pmOut: 'PM Out'
     };
@@ -929,7 +1003,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         errors.push("Both PM In and PM Out must be entered, or both left blank");
       }
       if ((lunchOut !== null && lunchIn === null) || (lunchOut === null && lunchIn !== null)) {
-        errors.push("Both Lunch Out and Lunch In must be entered, or both left blank");
+        errors.push("Both Lunch In and Lunch Out must be entered, or both left blank");
       }
       if (amIn !== null && amOut !== null && amOut <= amIn) {
         errors.push("AM Out must be later than AM In");
@@ -938,7 +1012,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         errors.push("PM Out must be later than PM In");
       }
       if (lunchOut !== null && lunchIn !== null && lunchIn <= lunchOut) {
-        errors.push("Lunch In must be later than Lunch Out");
+        errors.push("Lunch Out must be later than Lunch In");
       }
       if (amIn !== null && pmOut !== null && pmOut <= amIn) {
         errors.push("PM Out must be later than AM In");
@@ -947,29 +1021,29 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         errors.push("PM In must be at or after AM Out");
       }
       if (lunchOut !== null && amIn !== null && lunchOut < amIn) {
-        errors.push("Lunch Out must be at or after AM In");
+        errors.push("Lunch In must be at or after AM In");
       }
       if (lunchIn !== null && pmOut !== null && pmOut < lunchIn) {
-        errors.push("PM Out must be at or after Lunch In");
+        errors.push("PM Out must be at or after Lunch Out");
       }
       if (lunchOut !== null && amOut !== null && lunchOut < amOut) {
-        errors.push("Lunch Out must be at or after AM Out");
+        errors.push("Lunch In must be at or after AM Out");
       }
       if (lunchIn !== null && pmIn !== null && pmIn < lunchIn) {
-        errors.push("PM In must be at or after Lunch In");
+        errors.push("PM In must be at or after Lunch Out");
       }
     } else {
       if (amIn !== null && amOut !== null && amOut <= amIn) {
         errors.push("AM Out must be later than AM In");
       }
       if (amOut !== null && lunchOut !== null && amOut !== lunchOut) {
-        errors.push("There should be no time gap between AM Out and Lunch Out");
+        errors.push("There should be no time gap between AM Out and Lunch In");
       }
       if (lunchOut !== null && lunchIn !== null && (lunchIn - lunchOut !== 60)) {
         errors.push("Lunch break must be exactly one hour");
       }
       if (lunchIn !== null && pmIn !== null && lunchIn !== pmIn) {
-        errors.push("Lunch In and PM In should not have any time gap");
+        errors.push("Lunch Out and PM In should not have any time gap");
       }
       if (pmIn !== null && pmOut !== null && pmOut <= pmIn) {
         errors.push("PM Out must be later than PM In");
@@ -1228,6 +1302,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       setShortHoursError("Reason is mandatory.");
       return;
     }
+    if (shortHoursReasonText.trim().length < 10) {
+      setShortHoursError("Reason must be at least 10 characters.");
+      return;
+    }
     setShortHoursError('');
 
     const dateStr = shortHoursModalData.date;
@@ -1290,6 +1368,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const handleAdminShortHoursRejectSubmit = async () => {
     if (!adminRejectionText.trim()) {
       setAdminShortHoursError("Rejection reason is required.");
+      return;
+    }
+    if (adminRejectionText.trim().length < 10) {
+      setAdminShortHoursError("Rejection reason must be at least 10 characters.");
       return;
     }
     setAdminShortHoursError('');
@@ -1382,8 +1464,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   const handleRejectSubmit = async () => {
     const { entryId, isOT, reason, dateStr } = rejectModal;
-    if (!reason || reason.trim() === '') {
-      setRejectModal(prev => ({ ...prev, hasError: true }));
+    if (!reason || reason.trim().length < 10) {
+      setRejectModal(prev => ({ 
+        ...prev, 
+        hasError: true, 
+        errorMsg: !reason?.trim() ? 'Rejection reason is required.' : 'Reason must be at least 10 characters.' 
+      }));
       setTimeout(() => {
         const el = document.getElementById("reject-reason");
         if (el) el.focus();
@@ -1528,8 +1614,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const handleOTSubmit = async (status) => {
     const formattedReason = formatReasonText(otModal.reason);
     const formattedRemarks = formatReasonText(otModal.remarks || '');
-    if (!formattedReason || formattedReason.trim() === '') {
-      setOtModal(prev => ({ ...prev, hasError: true }));
+    if (!formattedReason || formattedReason.trim().length < 10) {
+      setOtModal(prev => ({ 
+        ...prev, 
+        hasError: true, 
+        errorMsg: !formattedReason.trim() ? 'OT Reason is required.' : 'Reason must be at least 10 characters.' 
+      }));
       setTimeout(() => {
         const el = document.getElementById("ot-reason");
         if (el) el.focus();
@@ -2089,8 +2179,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               <tr>
                 <th className="grp" style={{ background: '#236b55', borderRight: 'none', boxShadow: '0 0 0 0.5px #236b55' }}>AM In</th>
                 <th className="grp" style={{ background: '#236b55', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #236b55' }}>AM Out</th>
-                <th className="grp" style={{ background: '#455fa0', borderRight: 'none', boxShadow: '0 0 0 0.5px #455fa0' }}>Lunch Out</th>
-                <th className="grp" style={{ background: '#455fa0', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #455fa0' }}>Lunch In</th>
+                <th className="grp" style={{ background: '#455fa0', borderRight: 'none', boxShadow: '0 0 0 0.5px #455fa0' }}>Lunch In</th>
+                <th className="grp" style={{ background: '#455fa0', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #455fa0' }}>Lunch Out</th>
                 <th className="grp" style={{ background: '#236b55', borderRight: 'none', boxShadow: '0 0 0 0.5px #236b55' }}>PM In</th>
                 <th className="grp" style={{ background: '#236b55', borderRight: '1px solid rgba(255,255,255,0.18)', boxShadow: '0 0 0 0.5px #236b55' }}>PM Out</th>
               </tr>
@@ -2309,10 +2399,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                               <>
                                 <option>Working Day</option>
                                 <option>WFH</option>
-                                <option>Week Off</option>
                                 <option>Holiday</option>
                                 <option>Paid Leave</option>
                                 <option>Unpaid Leave</option>
+                                {row.type === 'Week Off' && (
+                                  <option value="Week Off" disabled hidden>Week Off</option>
+                                )}
                               </>
                             )}
                           </select>
@@ -2460,7 +2552,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                  <>
                                    {renderShortHoursIndicator(row, dateStr, hrs)}
                                    <span style={{color: '#ffffff', fontWeight: 'bold'}}>Permission Granted</span>
-                                   <ViewIcon className="view-icon" onClick={() => setReasonViewModal({ isOpen: true, reason: row.otResubmissionMessage, title: 'OT Resubmission Access', dateStr: dateStr })} color="#ffffff" />
+                                    <ViewIcon className="view-icon" onClick={() => setReasonViewModal({ 
+                                      isOpen: true, 
+                                      reason: row.otResubmissionMessage, 
+                                      title: (row.type === 'Paid Leave' || row.type === 'Unpaid Leave') ? 'Leave Resubmission Access' : 
+                                             (row.type === 'Holiday') ? 'Holiday Resubmission Access' : 'OT Resubmission Access', 
+                                      dateStr: dateStr 
+                                    })} color="#ffffff" />
                                  </>
                                ) : (
                                  <>
@@ -2905,7 +3003,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             />
             {rejectModal.hasError && (
               <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
-                Rejection reason is required.
+                {rejectModal.errorMsg || 'Rejection reason is required.'}
               </span>
             )}
           </div>
@@ -2943,33 +3041,108 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           </div>
         </Modal>
       )}
-      {reasonViewModal.isOpen && (
-        <Modal 
-          isOpen={reasonViewModal.isOpen} 
-          title={reasonViewModal.title} 
-          onClose={() => setReasonViewModal({...reasonViewModal, isOpen: false})}
-          actions={
-            <div style={{display:'flex', gap:'10px', width:'100%'}}>
-              <button className="btn-cancel" onClick={() => setReasonViewModal({isOpen: false, reason: '', title: '', dateStr: ''})} style={{flex:1}}>Close</button>
-              {(() => {
-                const entryForReason = reasonViewModal.dateStr ? (entries[reasonViewModal.dateStr] || editedRows[reasonViewModal.dateStr]) : null;
-                const hasOT = entryForReason && calculateHours(entryForReason).ot !== '--';
-                const showReapply = !isAdmin && !reasonViewModal.title.includes('Resubmission Access') && (
-                  reasonViewModal.title.includes('OT') ||
-                  (reasonViewModal.title === 'Rejection Reason' && hasOT && entryForReason && entryForReason.otStatus !== 'Approved' && entryForReason.otStatus !== 'Filed' && entryForReason.otStatus !== 'Refilled')
-                );
-                return showReapply ? (
-                  <button className="btn-submit-modal" onClick={() => reapplyOT(entryForReason)} style={{flex:1}}>Reapply OT</button>
-                ) : null;
-              })()}
-            </div>
+      {reasonViewModal.isOpen && (() => {
+        const entryForReason = reasonViewModal.dateStr ? (entries[reasonViewModal.dateStr] || editedRows[reasonViewModal.dateStr]) : null;
+        const isLeaveRequest = entryForReason && (entryForReason.type === 'Paid Leave' || entryForReason.type === 'Unpaid Leave');
+        const hasResubmitPermission = entryForReason && entryForReason.otResubmissionGranted && !entryForReason.otResubmissionUsed;
+        const isLeaveResubmitFlow = isLeaveRequest && (entryForReason.status === 'Rejected' || (entryForReason.status === 'Approved' && hasResubmitPermission));
+        const hasReappliedAlready = isLeaveRequest && entryForReason.leaveReapplyCount && entryForReason.leaveReapplyCount >= 1;
+        
+        const isHolidayRequest = entryForReason && entryForReason.type === 'Holiday';
+        const hasNoTimings = entryForReason && !entryForReason.amIn && !entryForReason.amOut && !entryForReason.lunchOut && !entryForReason.lunchIn && !entryForReason.pmIn && !entryForReason.pmOut;
+        const isHolidayResubmitFlow = isHolidayRequest && hasNoTimings && (entryForReason.status === 'Rejected' || (entryForReason.status === 'Approved' && hasResubmitPermission));
+
+        let secondaryButton = null;
+        if (isLeaveResubmitFlow && !isAdmin) {
+          if (!hasReappliedAlready) {
+            if (leaveResubmitStage === 'initial') {
+              secondaryButton = (
+                <button className="btn-submit-modal" onClick={() => setLeaveResubmitStage('guidelines')} style={{flex:1}}>
+                  View More
+                </button>
+              );
+            } else if (leaveResubmitStage === 'guidelines') {
+              secondaryButton = (
+                <button className="btn-submit-modal" onClick={() => handleLeaveResubmit(entryForReason)} style={{flex:1}}>
+                  Resubmit
+                </button>
+              );
+            }
           }
-        >
-          <div style={{padding: '20px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5', background: '#f9fafb', borderRadius: '4px', margin: '0 10px'}}>
-             {reasonViewModal.reason || "No reason provided."}
-          </div>
-        </Modal>
-      )}
+        } else {
+          const hasOT = entryForReason && calculateHours(entryForReason).ot !== '--';
+          const showReapply = !isAdmin && !reasonViewModal.title.includes('Resubmission Access') && (
+            reasonViewModal.title.includes('OT') ||
+            (reasonViewModal.title === 'Rejection Reason' && hasOT && entryForReason && entryForReason.otStatus !== 'Approved' && entryForReason.otStatus !== 'Filed' && entryForReason.otStatus !== 'Refilled')
+          );
+          if (showReapply) {
+            secondaryButton = (
+              <button className="btn-submit-modal" onClick={() => reapplyOT(entryForReason)} style={{flex:1}}>Reapply OT</button>
+            );
+          }
+        }
+
+        return (
+          <Modal 
+            isOpen={reasonViewModal.isOpen} 
+            title={reasonViewModal.title} 
+            onClose={() => setReasonViewModal({...reasonViewModal, isOpen: false})}
+            actions={
+              <div style={{display:'flex', gap:'10px', width:'100%'}}>
+                <button className="btn-cancel" onClick={() => setReasonViewModal({isOpen: false, reason: '', title: '', dateStr: ''})} style={{flex:1}}>Close</button>
+                {secondaryButton}
+              </div>
+            }
+          >
+            <div style={{padding: '20px', fontSize: '14px', color: '#4b5563', lineHeight: '1.5', background: '#f9fafb', borderRadius: '4px', margin: '0 10px'}}>
+               <div style={{padding: '10px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '4px'}}>
+                 {reasonViewModal.reason || "No reason provided."}
+               </div>
+               
+               {isHolidayResubmitFlow && !isAdmin && (
+                 <div style={{marginTop: '16px', borderTop: '1px solid #e5e7eb', paddingTop: '16px', color: '#dc2626', fontWeight: '500', fontStyle: 'italic'}}>
+                   Your holiday timesheet has been rejected. If you would like to resubmit, please change the Day Type and submit the timesheet again.
+                 </div>
+               )}
+
+               {isLeaveResubmitFlow && !isAdmin && (
+                 <div style={{marginTop: '16px', borderTop: '1px solid #e5e7eb', paddingTop: '16px'}}>
+                   {hasReappliedAlready ? (
+                     <div style={{color: '#dc2626', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '6px', padding: '10px'}}>
+                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{flexShrink:0}}>
+                         <circle cx="12" cy="12" r="10"></circle>
+                         <line x1="15" y1="9" x2="9" y2="15"></line>
+                         <line x1="9" y1="9" x2="15" y2="15"></line>
+                       </svg>
+                       This rejection is final. Resubmission is not permitted for this leave request.
+                     </div>
+                   ) : (
+                     <>
+                       {leaveResubmitStage === 'initial' ? (
+                         <div style={{color: '#4b5563', fontWeight: '500', fontStyle: 'italic', display: 'block', marginTop: '6px'}}>
+                           Click on 'View More' to view the resubmission guidelines.
+                         </div>
+                       ) : (
+                         <div style={{background: '#fffbeb', border: '1.5px dashed #f59e0b', borderRadius: '6px', padding: '14px', marginTop: '10px'}}>
+                           <div style={{color: '#b45309', fontWeight: 'bold', fontSize: '13px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em'}}>
+                             Resubmission Guidelines:
+                           </div>
+                           <ul style={{margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', color: '#78350f'}}>
+                             <li>Your previous leave request was {entryForReason && entryForReason.status === 'Approved' ? 'approved' : 'rejected'}.</li>
+                             <li>Obtain your Manager's approval at least one week before the leave date.</li>
+                             <li>Review the rejection comments and make the necessary corrections.</li>
+                             <li>Resubmit the leave request only after completing the above steps.</li>
+                           </ul>
+                         </div>
+                       )}
+                     </>
+                   )}
+                 </div>
+               )}
+            </div>
+          </Modal>
+        );
+      })()}
 
       {isShortHoursModalOpen && shortHoursModalData && (
         <div className="modal-overlay open" style={{ zIndex: 1001, background: 'rgba(0,0,0,0.5)' }}>

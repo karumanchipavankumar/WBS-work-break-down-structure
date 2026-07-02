@@ -47,7 +47,7 @@ public class TimesheetSchedulerService {
         List<User> employees = userRepository.findByRole("employee");
 
         for (User emp : employees) {
-            if (emp.getEmail() == null || emp.getEmail().trim().isEmpty()) {
+            if (emp.getEmail() == null || emp.getEmail().trim().isEmpty() || !emp.isEnabled()) {
                 continue;
             }
 
@@ -79,8 +79,18 @@ public class TimesheetSchedulerService {
 
             if (!unfilledDates.isEmpty()) {
                 sendIndividualReminder(emp, unfilledDates);
+            } else {
+                sendWeeklyConfirmation(emp);
             }
         }
+    }
+
+    private void sendWeeklyConfirmation(User employee) {
+        String subject = "[Smart Time Entry] Timesheet Submission Confirmation";
+        String body = "Hello " + employee.getName() + ",\n\n" +
+                "Congratulations! You have successfully completed and submitted this week's timesheet on time. Thank you for keeping your timesheet up to date.\n\n" +
+                "Best Regards,\nSmart Time Entry Team";
+        emailService.sendSimpleEmail(employee.getEmail(), subject, body);
     }
 
     private void sendIndividualReminder(User employee, List<String> unfilledDates) {
@@ -98,6 +108,7 @@ public class TimesheetSchedulerService {
                 "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
                 "https://timesheet.idealfolks.com/\n\n" +
                 "Submission Deadline: Please ensure all entries are updated by Friday end of day.\n\n" +
+                "If you have already filled in your timesheet, please ignore this email.\n\n" +
                 "Best Regards,\nSmart Time Entry Team";
 
         emailService.sendSimpleEmail(employee.getEmail(), subject, body);
@@ -234,15 +245,66 @@ public class TimesheetSchedulerService {
     @Scheduled(cron = "0 0 2 L * ?")
     public void sendMonthlyEmployeeReminders() {
         System.out.println("Starting Employee Monthly Reminder Email cron job...");
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Tokyo"));
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay = today.with(TemporalAdjusters.lastDayOfMonth());
+
+        String startStr = firstDay.format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String endStr = lastDay.format(DateTimeFormatter.ISO_LOCAL_DATE);
+
         List<User> employees = userRepository.findByRole("employee");
+
         for (User emp : employees) {
-            if (emp.isEnabled() && emp.getEmail() != null && !emp.getEmail().trim().isEmpty()) {
+            if (emp.getEmail() == null || emp.getEmail().trim().isEmpty() || !emp.isEnabled()) {
+                continue;
+            }
+
+            List<TimesheetEntry> entries = timesheetEntryRepository.findByUserIdAndDateBetween(emp.getId(), startStr, endStr);
+            boolean hasUnfilled = false;
+
+            LocalDate current = firstDay;
+            while (!current.isAfter(lastDay)) {
+                DayOfWeek dow = current.getDayOfWeek();
+                boolean isWknd = dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY;
+
+                if (!isWknd) {
+                    String dateStr = current.format(DateTimeFormatter.ISO_LOCAL_DATE);
+                    Optional<TimesheetEntry> entryOpt = entries.stream()
+                            .filter(e -> e.getDate().equals(dateStr))
+                            .findFirst();
+
+                    if (entryOpt.isPresent()) {
+                        TimesheetEntry entry = entryOpt.get();
+                        String type = entry.getType();
+                        if ("Working Day".equalsIgnoreCase(type) || "WFH".equalsIgnoreCase(type) || type == null) {
+                            if (entry.getAmIn() == null || entry.getAmIn().trim().isEmpty() ||
+                                entry.getPmOut() == null || entry.getPmOut().trim().isEmpty()) {
+                                hasUnfilled = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        hasUnfilled = true;
+                        break;
+                    }
+                }
+                current = current.plusDays(1);
+            }
+
+            if (hasUnfilled) {
                 String subject = "[Smart Time Entry] Monthly Timesheet Reminder - Please complete your entries";
                 String body = "Hello " + emp.getName() + ",\n\n" +
                         "This is a friendly reminder to complete your timesheet entries for this month.\n\n" +
                         "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
                         "https://timesheet.idealfolks.com/\n\n" +
                         "Submission Deadline: Please ensure all entries are updated by the end of today.\n\n" +
+                        "If you have already filled in your timesheet, please ignore this email.\n\n" +
+                        "Best Regards,\nSmart Time Entry Team";
+                emailService.sendSimpleEmail(emp.getEmail(), subject, body);
+            } else {
+                String subject = "[Smart Time Entry] Monthly Timesheet Submission Confirmation";
+                String body = "Hello " + emp.getName() + ",\n\n" +
+                        "Congratulations! You have successfully completed and submitted this month's timesheet on time. Thank you for maintaining your timesheet consistently.\n\n" +
                         "Best Regards,\nSmart Time Entry Team";
                 emailService.sendSimpleEmail(emp.getEmail(), subject, body);
             }

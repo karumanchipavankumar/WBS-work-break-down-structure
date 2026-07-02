@@ -92,6 +92,7 @@ export default function Dashboard() {
   const { user, logout, isSessionExpired } = useContext(AuthContext);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [logoSrc, setLogoSrc] = useState('/logo.jpg');
+  const mountTimeRef = useRef(Date.now());
 
   const [selectedEmployee, setSelectedEmployee] = useState(() => {
     if (user?.role === 'admin') {
@@ -219,6 +220,10 @@ export default function Dashboard() {
     }
 
     const handlePopState = async (e) => {
+      // Ignore popstate events fired immediately after page load/refresh (within 1 second)
+      if (Date.now() - mountTimeRef.current < 1000) {
+        return;
+      }
       if (isSessionExpired) {
         logout();
         return;

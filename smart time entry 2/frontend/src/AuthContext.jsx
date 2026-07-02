@@ -109,7 +109,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // 2. Inactivity timer check (5 minutes)
+  // 2. Inactivity timer check (15 minutes)
   useEffect(() => {
     if (!user) return;
 
@@ -130,8 +130,8 @@ export const AuthProvider = ({ children }) => {
       const lastActivity = localStorage.getItem('lastActivity');
       if (lastActivity) {
         const diff = Date.now() - Number(lastActivity);
-        const warningThreshold = 4.5 * 60 * 1000; // 4.5 minutes inactivity
-        const maxThreshold = 5 * 60 * 1000;       // 5 minutes inactivity
+        const warningThreshold = 14.5 * 60 * 1000; // 14.5 minutes inactivity
+        const maxThreshold = 15 * 60 * 1000;       // 15 minutes inactivity
 
         if (diff >= maxThreshold) {
           setShowWarning(false);

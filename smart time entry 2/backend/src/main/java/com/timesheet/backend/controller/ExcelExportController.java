@@ -384,8 +384,8 @@ public class ExcelExportController {
         for (int i = 0; i < 14; i++) { Cell c = shr.createCell(i); c.setCellStyle(headerStyle); }
         shr.getCell(3).setCellValue("AM In");     shr.getCell(3).setCellStyle(subHdrMorningSub);
         shr.getCell(4).setCellValue("AM Out");    shr.getCell(4).setCellStyle(subHdrMorningSub);
-        shr.getCell(5).setCellValue("Lunch Out"); shr.getCell(5).setCellStyle(subHdrLunchSub);
-        shr.getCell(6).setCellValue("Lunch In");  shr.getCell(6).setCellStyle(subHdrLunchSub);
+        shr.getCell(5).setCellValue("Lunch In"); shr.getCell(5).setCellStyle(subHdrLunchSub);
+        shr.getCell(6).setCellValue("Lunch Out");  shr.getCell(6).setCellStyle(subHdrLunchSub);
         shr.getCell(7).setCellValue("PM In");     shr.getCell(7).setCellStyle(subHdrMorningSub);
         shr.getCell(8).setCellValue("PM Out");    shr.getCell(8).setCellStyle(subHdrMorningSub);
         shr.getCell(9).setCellStyle(subHdrHours); shr.getCell(10).setCellStyle(subHdrHours); shr.getCell(11).setCellStyle(subHdrHours);
@@ -591,7 +591,7 @@ public class ExcelExportController {
           f.setFontName("Calibri"); f.setColor(IndexedColors.GREY_50_PERCENT.getIndex()); footerStyle.setFont(f); }
         footerStyle.setAlignment(HorizontalAlignment.LEFT); footerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
         Cell fc = footerRow.createCell(0);
-        fc.setCellValue("Enter AM Time In/Out -> Lunch Out/In -> PM Time In/Out in HH:MM format (e.g. 09:00). Leave rows blank for absent / holiday days. OT & Weekend hours calculate automatically.");
+        fc.setCellValue("Enter AM Time In/Out -> Lunch In/Out -> PM Time In/Out in HH:MM format (e.g. 09:00). Leave rows blank for absent / holiday days. OT & Weekend hours calculate automatically.");
         fc.setCellStyle(footerStyle);
         sheet.addMergedRegion(new CellRangeAddress(footerIdx, footerIdx, 0, 18));
 

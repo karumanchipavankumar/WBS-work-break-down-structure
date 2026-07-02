@@ -66,6 +66,9 @@ public class TimesheetEntry {
     @Column(name = "ot_reapply_count")
     private Integer otReapplyCount = 0;
 
+    @Column(name = "leave_reapply_count")
+    private Integer leaveReapplyCount = 0;
+
     @Column(name = "ot_resubmission_granted")
     private Boolean otResubmissionGranted = false;
 

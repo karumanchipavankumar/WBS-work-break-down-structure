@@ -284,6 +284,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   };
 
   const [employees, setEmployees] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newEmp, setNewEmp] = useState({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '' });
   const [domains, setDomains] = useState(['@oryfolks.com', '@idealfolks.com', '@gmail.com']);
@@ -387,10 +388,10 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       reasonErr = true;
       hasError = true;
       errorMsg = `Please select a reason for ${statusAction === 'disable' ? 'disabling' : 'enabling'} the account.`;
-    } else if (statusReason === 'Other' && !statusComments.trim()) {
+    } else if (statusReason === 'Other' && (!statusComments.trim() || statusComments.trim().length < 10)) {
       commentsErr = true;
       hasError = true;
-      errorMsg = "Comments are required when 'Other' reason is selected.";
+      errorMsg = !statusComments.trim() ? "Comments are required when 'Other' reason is selected." : "Comments must be at least 10 characters.";
     }
 
     setStatusReasonError(reasonErr);
@@ -794,6 +795,10 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       setDeleteError("Reason for deletion is mandatory.");
       return;
     }
+    if (deleteReason.trim().length < 10) {
+      setDeleteError("Reason must be at least 10 characters.");
+      return;
+    }
 
     setIsDeleting(true);
     setDeleteError('');
@@ -872,6 +877,15 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [searchQuery, setSearchQuery] = useState('');
   const filteredEmployees = employees
     .filter(emp => emp.dept !== 'Administration')
+    .filter(emp => {
+      if (statusFilter === 'Active') {
+        return emp.enabled !== false;
+      }
+      if (statusFilter === 'Inactive') {
+        return emp.enabled === false;
+      }
+      return true;
+    })
     // Sort newest first so the most recently created employee appears at top
     .sort((a, b) => {
       const da = a.createdAt ? new Date(a.createdAt) : new Date(0);
@@ -928,11 +942,24 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
         </div>
 
         <div className="stat-grid" id="adminStatGrid">
-          <div className="stat-card teal"><div className="stat-label">Total Employees</div><div className="stat-value">{employees.filter(emp => emp.dept !== 'Administration').length}</div></div>
+          <div className="stat-card teal">
+            <div className="stat-label">Total Employees</div>
+            <div className="stat-value">{employees.filter(emp => emp.dept !== 'Administration').length}</div>
+          </div>
+          <div className="stat-card sky">
+            <div className="stat-label">Active Employees</div>
+            <div className="stat-value">{employees.filter(emp => emp.dept !== 'Administration' && emp.enabled !== false).length}</div>
+          </div>
+          <div className="stat-card rose">
+            <div className="stat-label">Inactive Employees</div>
+            <div className="stat-value">{employees.filter(emp => emp.dept !== 'Administration' && emp.enabled === false).length}</div>
+          </div>
         </div>
 
-        {/* ── Search Bar ── */}
-        <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 20px 0' }}>
+        {/* ── Search Bar & Filter ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 20px 0', width: '100%' }}>
+          <div style={{ width: '160px' }} className="desktop-only" />
+
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -941,7 +968,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
             border: '1.5px solid #e2e8f0',
             borderRadius: '50px',
             padding: '10px 20px',
-            width: '480px',
+            width: '420px',
             boxShadow: '0 2px 8px rgba(45,143,123,0.08)',
             transition: 'border-color 0.2s, box-shadow 0.2s'
           }}
@@ -1000,6 +1027,54 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 ×
               </button>
             )}
+          </div>
+
+          <div style={{ position: 'relative', width: '160px', display: 'flex', justifyContent: 'flex-end' }}>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={{
+                background: '#fff',
+                border: '1.5px solid #e2e8f0',
+                borderRadius: '50px',
+                padding: '10px 36px 10px 20px',
+                fontSize: '14px',
+                color: '#1e293b',
+                boxShadow: '0 2px 8px rgba(45,143,123,0.08)',
+                outline: 'none',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
+                appearance: 'none',
+                width: '100%'
+              }}
+              onFocus={e => {
+                e.currentTarget.style.borderColor = 'var(--teal)';
+                e.currentTarget.style.boxShadow = '0 2px 12px rgba(45,143,123,0.18)';
+              }}
+              onBlur={e => {
+                e.currentTarget.style.borderColor = '#e2e8f0';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(45,143,123,0.08)';
+              }}
+            >
+              <option value="All">All Emp's</option>
+              <option value="Active">Active Emp's</option>
+              <option value="Inactive">Inactive Emp's</option>
+            </select>
+            <div style={{
+              position: 'absolute',
+              right: '16px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              color: '#64748b'
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
           </div>
         </div>
 
