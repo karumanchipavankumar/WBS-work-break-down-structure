@@ -96,7 +96,7 @@ public class NotificationService {
     }
 
     // Weekly Reminders: Friday at 4:00 PM
-    @Scheduled(cron = "0 0 16 * * FRI")
+    @Scheduled(cron = "0 0 16 * * FRI", zone = "Asia/Kolkata")
     public void sendWeeklyReminders() {
         List<User> employees = userRepository.findByRole("employee");
         for (User emp : employees) {
@@ -107,7 +107,7 @@ public class NotificationService {
     }
 
     // Monthly Reminders: Last day of the month at 5:00 PM
-    @Scheduled(cron = "0 0 17 L * ?")
+    @Scheduled(cron = "0 0 17 L * ?", zone = "Asia/Kolkata")
     public void sendMonthlyReminders() {
         List<User> employees = userRepository.findByRole("employee");
         for (User emp : employees) {
@@ -134,7 +134,7 @@ public class NotificationService {
     }
 
     // Cleanup: Daily at midnight
-    @Scheduled(cron = "0 0 0 * * ?")
+    @Scheduled(cron = "0 0 0 * * ?", zone = "Asia/Kolkata")
     public void cleanOldNotifications() {
         java.time.Instant cutoff = java.time.Instant.now().minus(java.time.Duration.ofDays(retentionDays));
         notificationRepository.deleteByCreatedAtBefore(cutoff);

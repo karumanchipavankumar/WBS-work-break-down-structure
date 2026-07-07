@@ -29,12 +29,11 @@ public class TimesheetSchedulerService {
     private EmailService emailService;
 
     // 1. Employee Weekly Reminder Email
-    // Cron: 0 2 * * 5 -> Friday 2:00 AM UTC (11:00 AM JST)
-    @Scheduled(cron = "0 0 2 * * 5")
-    // @Scheduled(cron = "0 07 18 * * *", zone = "Asia/Kolkata")
+    // Cron: Friday 4:00 PM IST
+    @Scheduled(cron = "0 0 16 * * FRI", zone = "Asia/Kolkata")
     public void sendWeeklyEmployeeReminders() {
         System.out.println("Starting Employee Weekly Reminder Email cron job...");
-        LocalDate today = LocalDate.now(ZoneId.of("Asia/Tokyo"));
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         LocalDate monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         LocalDate tuesday = monday.plusDays(1);
         LocalDate wednesday = monday.plusDays(2);
@@ -87,40 +86,44 @@ public class TimesheetSchedulerService {
 
     private void sendWeeklyConfirmation(User employee) {
         String subject = "[Smart Time Entry] Timesheet Submission Confirmation";
-        String body = "Hello " + employee.getName() + ",\n\n" +
-                "Congratulations! You have successfully completed and submitted this week's timesheet on time. Thank you for keeping your timesheet up to date.\n\n" +
-                "Best Regards,\nSmart Time Entry Team";
-        emailService.sendSimpleEmail(employee.getEmail(), subject, body);
+        String htmlBody = "<html><body>" +
+                "<p>Hello " + employee.getName() + ",</p>" +
+                "<p>Congratulations! You have successfully completed and submitted this week's timesheet on time. Thank you for keeping your timesheet up to date.</p>" +
+                "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                "</body></html>";
+        emailService.sendHtmlEmail(employee.getEmail(), subject, htmlBody);
     }
 
     private void sendIndividualReminder(User employee, List<String> unfilledDates) {
         String subject = "[Smart Time Entry] Timesheet Reminder - Please complete your entries for this week";
         
-        StringBuilder datesList = new StringBuilder();
+        StringBuilder datesList = new StringBuilder("<ul>");
         for (String d : unfilledDates) {
-            datesList.append("- ").append(d).append("\n");
+            datesList.append("<li>").append(d).append("</li>");
         }
+        datesList.append("</ul>");
 
-        String body = "Hello " + employee.getName() + ",\n\n" +
-                "This is a friendly reminder to complete your timesheet entries for this week.\n\n" +
-                "According to our records, the following days have incomplete or unfilled hours:\n" +
-                datesList.toString() + "\n" +
-                "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
-                "https://timesheet.idealfolks.com/\n\n" +
-                "Submission Deadline: Please ensure all entries are updated by Friday end of day.\n\n" +
-                "If you have already filled in your timesheet, please ignore this email.\n\n" +
-                "Best Regards,\nSmart Time Entry Team";
+        String htmlBody = "<html><body>" +
+                "<p>Hello " + employee.getName() + ",</p>" +
+                "<p>This is a friendly reminder to complete your timesheet entries for this week.</p>" +
+                "<p>According to our records, the following days have incomplete or unfilled hours:</p>" +
+                datesList.toString() +
+                "<p>Please log in to the Smart Time Entry portal to complete and submit your timesheet:<br/>" +
+                "<a href=\"https://timesheet.idealfolks.com/\" style=\"color: #0066cc; text-decoration: underline;\">https://timesheet.idealfolks.com/</a></p>" +
+                "<p>Submission Deadline: Please ensure all entries are updated by Friday end of day.</p>" +
+                "<p>If you have already filled in your timesheet, please ignore this email.</p>" +
+                "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                "</body></html>";
 
-        emailService.sendSimpleEmail(employee.getEmail(), subject, body);
+        emailService.sendHtmlEmail(employee.getEmail(), subject, htmlBody);
     }
 
     // 2. Admin Weekly Compliance Report Email
-    // Cron: 0 2 * * 1 -> Monday 2:00 AM UTC (11:00 AM JST)
-    @Scheduled(cron = "0 0 2 * * 1")
-    // @Scheduled(cron = "0 07 18 * * *", zone = "Asia/Kolkata")
+    // Cron: Monday 10:00 AM IST
+    @Scheduled(cron = "0 0 10 * * MON", zone = "Asia/Kolkata")
     public void sendWeeklyAdminComplianceReport() {
         System.out.println("Starting Admin Weekly Compliance Report cron job...");
-        LocalDate today = LocalDate.now(ZoneId.of("Asia/Tokyo"));
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         LocalDate prevMonday = today.minusWeeks(1).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         LocalDate prevTuesday = prevMonday.plusDays(1);
         LocalDate prevWednesday = prevMonday.plusDays(2);
@@ -241,11 +244,11 @@ public class TimesheetSchedulerService {
     }
 
     // 3. Employee Monthly Reminder Email
-    // Cron: 0 0 2 L * ? -> Last day of the month at 2:00 AM UTC (11:00 AM JST)
-    @Scheduled(cron = "0 0 2 L * ?")
+    // Cron: Last day of the month at 5:00 PM IST
+    @Scheduled(cron = "0 0 17 L * ?", zone = "Asia/Kolkata")
     public void sendMonthlyEmployeeReminders() {
         System.out.println("Starting Employee Monthly Reminder Email cron job...");
-        LocalDate today = LocalDate.now(ZoneId.of("Asia/Tokyo"));
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         LocalDate firstDay = today.withDayOfMonth(1);
         LocalDate lastDay = today.with(TemporalAdjusters.lastDayOfMonth());
 
@@ -293,39 +296,45 @@ public class TimesheetSchedulerService {
 
             if (hasUnfilled) {
                 String subject = "[Smart Time Entry] Monthly Timesheet Reminder - Please complete your entries";
-                String body = "Hello " + emp.getName() + ",\n\n" +
-                        "This is a friendly reminder to complete your timesheet entries for this month.\n\n" +
-                        "Please log in to the Smart Time Entry portal to complete and submit your timesheet:\n" +
-                        "https://timesheet.idealfolks.com/\n\n" +
-                        "Submission Deadline: Please ensure all entries are updated by the end of today.\n\n" +
-                        "If you have already filled in your timesheet, please ignore this email.\n\n" +
-                        "Best Regards,\nSmart Time Entry Team";
-                emailService.sendSimpleEmail(emp.getEmail(), subject, body);
+                String htmlBody = "<html><body>" +
+                        "<p>Hello " + emp.getName() + ",</p>" +
+                        "<p>This is a friendly reminder to complete your timesheet entries for this month.</p>" +
+                        "<p>Please log in to the Smart Time Entry portal to complete and submit your timesheet:<br/>" +
+                        "<a href=\"https://timesheet.idealfolks.com/\" style=\"color: #0066cc; text-decoration: underline;\">https://timesheet.idealfolks.com/</a></p>" +
+                        "<p>Submission Deadline: Please ensure all entries are updated by the end of today.</p>" +
+                        "<p>If you have already filled in your timesheet, please ignore this email.</p>" +
+                        "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                        "</body></html>";
+                emailService.sendHtmlEmail(emp.getEmail(), subject, htmlBody);
             } else {
                 String subject = "[Smart Time Entry] Monthly Timesheet Submission Confirmation";
-                String body = "Hello " + emp.getName() + ",\n\n" +
-                        "Congratulations! You have successfully completed and submitted this month's timesheet on time. Thank you for maintaining your timesheet consistently.\n\n" +
-                        "Best Regards,\nSmart Time Entry Team";
-                emailService.sendSimpleEmail(emp.getEmail(), subject, body);
+                String htmlBody = "<html><body>" +
+                        "<p>Hello " + emp.getName() + ",</p>" +
+                        "<p>Congratulations! You have successfully completed and submitted this month's timesheet on time. Thank you for maintaining your timesheet consistently.</p>" +
+                        "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                        "</body></html>";
+                emailService.sendHtmlEmail(emp.getEmail(), subject, htmlBody);
             }
         }
     }
 
     // 4. Admin Monthly Compliance Reminder Email
-    // Cron: 0 0 2 L * ? -> Last day of the month at 2:00 AM UTC (11:00 AM JST)
-    @Scheduled(cron = "0 0 2 L * ?")
+    // Cron: Last day of the month at 5:00 PM IST
+    @Scheduled(cron = "0 0 17 L * ?", zone = "Asia/Kolkata")
     public void sendMonthlyAdminReminders() {
         System.out.println("Starting Admin Monthly Reminder Email cron job...");
         List<User> admins = userRepository.findByRole("admin");
         for (User admin : admins) {
             if (admin.isEnabled() && admin.getEmail() != null && !admin.getEmail().trim().isEmpty()) {
                 String subject = "[Smart Time Entry] Monthly Timesheet Compliance Reminder";
-                String body = "Hello " + admin.getName() + ",\n\n" +
-                        "This is a monthly reminder to review timesheet compliance, check employee submissions, and finalize approvals for this month.\n\n" +
-                        "Please log in to the Admin Dashboard to check timesheet statuses:\n" +
-                        "https://timesheet.idealfolks.com/\n\n" +
-                        "Best Regards,\nSmart Time Entry Team";
-                emailService.sendSimpleEmail(admin.getEmail(), subject, body);
+                String htmlBody = "<html><body>" +
+                        "<p>Hello " + admin.getName() + ",</p>" +
+                        "<p>This is a monthly reminder to review timesheet compliance, check employee submissions, and finalize approvals for this month.</p>" +
+                        "<p>Please log in to the Admin Dashboard to check timesheet statuses:<br/>" +
+                        "<a href=\"https://timesheet.idealfolks.com/\" style=\"color: #0066cc; text-decoration: underline;\">https://timesheet.idealfolks.com/</a></p>" +
+                        "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                        "</body></html>";
+                emailService.sendHtmlEmail(admin.getEmail(), subject, htmlBody);
             }
         }
     }

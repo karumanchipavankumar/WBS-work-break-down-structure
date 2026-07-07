@@ -384,6 +384,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    return () => {
+      try {
+        sessionStorage.removeItem('timesheet_current_date');
+      } catch (e) {}
+    };
   }, []);
 
   const [currentDate, setCurrentDate] = useState(() => {
