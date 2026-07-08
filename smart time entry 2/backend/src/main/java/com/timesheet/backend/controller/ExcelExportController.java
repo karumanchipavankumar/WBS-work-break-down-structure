@@ -476,15 +476,29 @@ public class ExcelExportController {
         totRow.getCell(0).setCellValue("TOTAL - " + monthLabel);
         sheet.addMergedRegion(new CellRangeAddress(totIdx, totIdx, 0, 8));
 
-        int fd = 8, ld = 7 + numRows;
         Cell tJ = totRow.getCell(9);  tJ.setCellStyle(totalsDecimal);
         Cell tK = totRow.getCell(10); tK.setCellStyle(totalsDecimal);
         Cell tL = totRow.getCell(11); tL.setCellStyle(totalsDecimal);
         if (numRows > 0) {
-            tJ.setCellFormula("SUM(J" + fd + ":J" + ld + ")");
-            tK.setCellFormula("SUM(K" + fd + ":K" + ld + ")");
-            tL.setCellFormula("SUM(L" + fd + ":L" + ld + ")");
-        } else { tJ.setCellValue(0); tK.setCellValue(0); tL.setCellValue(0); }
+            long totalRegMins = 0;
+            long totalOtMins = 0;
+            long totalTotMins = 0;
+            for (Map<String, Object> r : rows) {
+                String totStrVal = str(r.get("totalHrs"));
+                if (!totStrVal.trim().isEmpty() && !"--".equals(totStrVal.trim())) {
+                    totalRegMins += parseTimeToMinutes(str(r.get("regHrs")));
+                    totalOtMins += parseTimeToMinutes(str(r.get("otHrs")));
+                    totalTotMins += parseTimeToMinutes(totStrVal);
+                }
+            }
+            tJ.setCellValue(minutesToHHMM(totalRegMins));
+            tK.setCellValue(minutesToHHMM(totalOtMins));
+            tL.setCellValue(minutesToHHMM(totalTotMins));
+        } else {
+            tJ.setCellValue(0.0);
+            tK.setCellValue(0.0);
+            tL.setCellValue(0.0);
+        }
         totRow.getCell(13).setCellValue("<- hrs");
 
         // ── Row-specific Summary Colors ──
@@ -520,9 +534,9 @@ public class ExcelExportController {
         // ── Compute summary metrics (6-row summary) ────────────────────────────
         double daysLoggedCount  = 0;   // all submitted
         double wkndHolDaysCount = 0;   // weekend + holiday submitted days
-        double regHrsTotal      = 0.0;
-        double wkndHolHrsTotal  = 0.0; // Total weekends & Holiday hours worked
-        double otHrsTotal       = 0.0;
+        long regHrsTotalMins      = 0;
+        long wkndHolHrsTotalMins  = 0; // Total weekends & Holiday hours worked
+        long otHrsTotalMins       = 0;
 
         if (rows != null) {
             for (Map<String, Object> r : rows) {
@@ -548,27 +562,30 @@ public class ExcelExportController {
 
                 // Hours: approved entries only
                 if ("Approved".equalsIgnoreCase(status)) {
-                    double rHrs = 0.0;
+                    long rMins = 0;
                     if (!regHrs.isEmpty() && !"--".equals(regHrs)) {
-                        rHrs = parseTimeToDecimal(regHrs);
+                        rMins = parseTimeToMinutes(regHrs);
                     }
-                    double oHrs = 0.0;
+                    long oMins = 0;
                     if ("Approved".equalsIgnoreCase(otStatus)
                             && !otHrs.isEmpty() && !"--".equals(otHrs)) {
-                        oHrs = parseTimeToDecimal(otHrs);
+                        oMins = parseTimeToMinutes(otHrs);
                     }
 
                     if (isWkndOrHol) {
-                        wkndHolHrsTotal += (rHrs + oHrs);
-                        otHrsTotal += (rHrs + oHrs); // all hours worked on weekends/holidays count as OT
+                        wkndHolHrsTotalMins += (rMins + oMins);
+                        otHrsTotalMins += (rMins + oMins); // all hours worked on weekends/holidays count as OT
                     } else {
-                        regHrsTotal += rHrs;
-                        otHrsTotal += oHrs;
+                        regHrsTotalMins += rMins;
+                        otHrsTotalMins += oMins;
                     }
                 }
             }
         }
-        double totHrsTotal = regHrsTotal + (otHrsTotal - wkndHolHrsTotal) + wkndHolHrsTotal; // equivalent to regHrsTotal + otHrsTotal
+        double regHrsTotal      = minutesToHHMM(regHrsTotalMins);
+        double wkndHolHrsTotal  = minutesToHHMM(wkndHolHrsTotalMins);
+        double otHrsTotal       = minutesToHHMM(otHrsTotalMins);
+        double totHrsTotal      = minutesToHHMM(regHrsTotalMins + otHrsTotalMins);
 
         // Weekend/Holiday count uses integer format; hours use decimal (0.00).
         XSSFCellStyle sumValueWkndHolInt = cloneWithBg(workbook, sumValueStyle, wkndHrsBg);
@@ -830,7 +847,7 @@ public class ExcelExportController {
                 if (parts.length == 2) {
                     double hrs = Double.parseDouble(parts[0]);
                     double mins = Double.parseDouble(parts[1]);
-                    return hrs + (mins / 60.0);
+                    return hrs + (mins / 100.0);
                 }
             } else {
                 return Double.parseDouble(timeStr);
@@ -839,6 +856,36 @@ public class ExcelExportController {
             // ignore
         }
         return 0.0;
+    }
+
+    private long parseTimeToMinutes(String timeStr) {
+        if (timeStr == null || timeStr.trim().isEmpty() || "--".equals(timeStr.trim())) {
+            return 0;
+        }
+        try {
+            if (timeStr.contains(":")) {
+                String[] parts = timeStr.trim().split(":");
+                if (parts.length == 2) {
+                    long hrs = Long.parseLong(parts[0]);
+                    long mins = Long.parseLong(parts[1]);
+                    return hrs * 60 + mins;
+                }
+            } else {
+                double val = Double.parseDouble(timeStr);
+                long hrs = (long) val;
+                long mins = Math.round((val - hrs) * 100.0);
+                return hrs * 60 + mins;
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return 0;
+    }
+
+    private double minutesToHHMM(long totalMinutes) {
+        long hrs = totalMinutes / 60;
+        long mins = totalMinutes % 60;
+        return hrs + (mins / 100.0);
     }
 
     private String formatDateStr(String dateStr) {
