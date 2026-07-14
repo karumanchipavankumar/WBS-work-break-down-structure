@@ -1,7 +1,9 @@
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\DataSeeder.java
+C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\repository\SentEmailLogRepository.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\controller\NotificationController.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\model\EmailDomain.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\repository\UserRepository.java
+C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\service\EmailLogService.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\security\JwtUtil.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\service\NotificationService.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\config\GlobalExceptionHandler.java
@@ -16,6 +18,7 @@ C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployed
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\config\SecurityConfig.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\model\Notification.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\model\AuditLog.java
+C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\model\SentEmailLog.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\model\TimesheetEntry.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\controller\AdminController.java
 C:\Users\karum\Downloads\smart time entry _deployedv1\smart time entry _deployedv1\smart time entry 2\backend\src\main\java\com\timesheet\backend\repository\TimesheetEntryRepository.java

@@ -1,9 +1,11 @@
 com\timesheet\backend\controller\NotificationController.class
 com\timesheet\backend\DbCheckRunner.class
 com\timesheet\backend\model\Notification.class
+com\timesheet\backend\model\SentEmailLog.class
 com\timesheet\backend\controller\ExcelExportController.class
 com\timesheet\backend\service\TimesheetSchedulerService.class
 com\timesheet\backend\repository\UserRepository.class
+com\timesheet\backend\service\EmailLogService.class
 com\timesheet\backend\BackendApplication.class
 com\timesheet\backend\repository\TimesheetEntryRepository.class
 com\timesheet\backend\model\AuditLog.class
@@ -23,4 +25,5 @@ com\timesheet\backend\model\TimesheetEntry.class
 com\timesheet\backend\repository\AuditLogRepository.class
 com\timesheet\backend\controller\TimesheetController.class
 com\timesheet\backend\controller\AdminController.class
+com\timesheet\backend\repository\SentEmailLogRepository.class
 com\timesheet\backend\model\EmailDomain.class
