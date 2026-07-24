@@ -51,6 +51,30 @@ public class AdminController {
         return sb.toString().trim();
     }
 
+    private String calculateEndDate(String startDateStr, String durationStr) {
+        try {
+            java.time.LocalDate start = java.time.LocalDate.parse(startDateStr);
+            String digits = durationStr.replaceAll("\\D", "");
+            if (digits.isEmpty()) {
+                return start.plusMonths(3).toString();
+            }
+            int num = Integer.parseInt(digits);
+            String lower = durationStr.toLowerCase();
+            if (lower.contains("year") || lower.contains("yr")) {
+                return start.plusYears(num).toString();
+            } else if (lower.contains("day")) {
+                return start.plusDays(num).toString();
+            } else if (lower.contains("week") || lower.contains("wk")) {
+                return start.plusWeeks(num).toString();
+            } else {
+                return start.plusMonths(num).toString();
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to calculate end date: " + e.getMessage());
+            return null;
+        }
+    }
+
     @GetMapping("/employees")
     public ResponseEntity<List<User>> getAllEmployees() {
         return ResponseEntity.ok(userRepository.findAll());
@@ -250,6 +274,22 @@ public class AdminController {
         return ResponseEntity.ok(d);
     }
 
+    @DeleteMapping("/domains")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> deleteEmailDomain(@RequestParam("name") String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Domain name is required");
+        }
+        String domain = name.trim().toLowerCase();
+        java.util.Optional<com.timesheet.backend.model.EmailDomain> opt = emailDomainRepository.findByNameIgnoreCase(domain);
+        if (opt.isPresent()) {
+            emailDomainRepository.delete(opt.get());
+            return ResponseEntity.ok(java.util.Map.of("message", "Domain deleted successfully", "name", domain));
+        } else {
+            return ResponseEntity.status(404).body("Domain not found");
+        }
+    }
+
     @PostMapping("/employees")
     public ResponseEntity<?> addEmployee(@RequestBody User employee) {
         // Trim inputs
@@ -264,6 +304,8 @@ public class AdminController {
         String dept = employee.getDept() != null ? employee.getDept().trim() : null;
         String country = employee.getCountry() != null ? employee.getCountry().trim() : null;
         String contactNumber = employee.getContactNumber() != null ? employee.getContactNumber().trim() : null;
+        String empType = employee.getEmpType() != null ? employee.getEmpType().trim() : null;
+        String partTimeDuration = employee.getPartTimeDuration() != null ? employee.getPartTimeDuration().trim() : null;
 
         // Backend Validations
         if (name == null || name.length() < 3 || name.length() > 32 || !name.matches("^[A-Za-z]+(?: [A-Za-z]+)*$")) {
@@ -294,6 +336,23 @@ public class AdminController {
             !"IN (+91)".equals(country) && !"JP (+81)".equals(country)) {
             notifyEmpCreationFailure(name, empId, "Please select a valid country.");
             return ResponseEntity.badRequest().body("Please select a valid country.");
+        }
+
+        // Emp Type & Duration Validation
+        if (empType == null || empType.isEmpty()) {
+            empType = "Full time";
+        }
+        if (!"Full time".equalsIgnoreCase(empType) && !"Part time".equalsIgnoreCase(empType)) {
+            notifyEmpCreationFailure(name, empId, "Please select a valid employee type.");
+            return ResponseEntity.badRequest().body("Please select a valid employee type.");
+        }
+        if ("Part time".equalsIgnoreCase(empType)) {
+            if (partTimeDuration == null || partTimeDuration.isEmpty()) {
+                notifyEmpCreationFailure(name, empId, "Please specify a duration for part-time employee.");
+                return ResponseEntity.badRequest().body("Please specify a duration for part-time employee.");
+            }
+        } else {
+            partTimeDuration = null;
         }
 
         // Contact Number Validation
@@ -470,6 +529,15 @@ public class AdminController {
         employee.setDept(dept);
         employee.setCountry(countryCode);
         employee.setContactNumber(finalContactNumber);
+        employee.setEmpType(empType);
+        employee.setPartTimeDuration(partTimeDuration);
+        if ("Part time".equalsIgnoreCase(empType)) {
+            employee.setPartTimeStartDate(dateOfJoining);
+            employee.setPartTimeEndDate(calculateEndDate(dateOfJoining, partTimeDuration));
+        } else {
+            employee.setPartTimeStartDate(null);
+            employee.setPartTimeEndDate(null);
+        }
 
         // Generate secure random 8-character password
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -524,13 +592,16 @@ public class AdminController {
         creationLog.setPerformedByEmpId(adminEmpId);
         creationLog.setPerformedByName(adminName);
         creationLog.setNewValues(String.format(
-            "Name: %s, Email: %s, Dept: %s, Manager: %s, Project: %s, Company: %s, DateOfJoining: %s",
-            saved.getName(), saved.getEmail(), saved.getDept(), saved.getManager(), saved.getProjectName(), saved.getCompanyName(), saved.getDateOfJoining()
+            "Name: %s, Email: %s, Dept: %s, Manager: %s, Project: %s, Company: %s, DateOfJoining: %s, EmpType: %s, Duration: %s",
+            saved.getName(), saved.getEmail(), saved.getDept(), saved.getManager(), saved.getProjectName(), saved.getCompanyName(), saved.getDateOfJoining(), saved.getEmpType(), saved.getPartTimeDuration()
         ));
         auditLogRepository.save(creationLog);
         
         try {
             emailService.sendOneTimePasswordResetLink(saved, rawPassword, oneTimeToken);
+            if ("Part time".equalsIgnoreCase(saved.getEmpType())) {
+                emailService.sendPartTimeWelcomeEmail(saved);
+            }
         } catch (Exception e) {
             System.err.println("Failed to send welcome credentials email: " + e.getMessage());
         }
@@ -721,6 +792,26 @@ public class AdminController {
             String dateOfJoining = employeeData.getDateOfJoining() != null ? employeeData.getDateOfJoining().trim() : null;
             String country = employeeData.getCountry() != null ? employeeData.getCountry().trim() : null;
             String contactNumber = employeeData.getContactNumber() != null ? employeeData.getContactNumber().trim() : null;
+            String empType = employeeData.getEmpType() != null ? employeeData.getEmpType().trim() : null;
+            String partTimeDuration = employeeData.getPartTimeDuration() != null ? employeeData.getPartTimeDuration().trim() : null;
+
+            if (empType == null) {
+                empType = user.getEmpType() != null ? user.getEmpType() : "Full time";
+            }
+            if ("Part time".equalsIgnoreCase(empType) && partTimeDuration == null) {
+                partTimeDuration = user.getPartTimeDuration();
+            }
+
+            if (!"Full time".equalsIgnoreCase(empType) && !"Part time".equalsIgnoreCase(empType)) {
+                return ResponseEntity.badRequest().body("Please select a valid employee type.");
+            }
+            if ("Part time".equalsIgnoreCase(empType)) {
+                if (partTimeDuration == null || partTimeDuration.isEmpty()) {
+                    return ResponseEntity.badRequest().body("Please specify a duration for part-time employee.");
+                }
+            } else {
+                partTimeDuration = null;
+            }
 
             // Backend Validations
             if (name == null || name.length() < 3 || name.length() > 32 || !name.matches("^[A-Za-z]+(?: [A-Za-z]+)*$")) {
@@ -846,6 +937,8 @@ public class AdminController {
 
             boolean countryChanged = (user.getCountry() == null && country != null) || (user.getCountry() != null && !user.getCountry().equals(countryCode));
             boolean contactChanged = (user.getContactNumber() == null && finalContactNumber != null) || (user.getContactNumber() != null && !user.getContactNumber().equals(finalContactNumber));
+            boolean empTypeChanged = (user.getEmpType() == null && empType != null) || (user.getEmpType() != null && !user.getEmpType().equalsIgnoreCase(empType));
+            boolean durationChanged = (user.getPartTimeDuration() == null && partTimeDuration != null) || (user.getPartTimeDuration() != null && !user.getPartTimeDuration().equalsIgnoreCase(partTimeDuration));
             
             String oldRole = employeeData.getRole() != null ? employeeData.getRole().trim() : user.getRole();
             String newRole = employeeData.getRole() != null ? employeeData.getRole().trim() : oldRole;
@@ -887,12 +980,21 @@ public class AdminController {
                 prevVals.append("ContactNumber: ").append(user.getContactNumber()).append("; ");
                 newValList.append("ContactNumber: ").append(finalContactNumber).append("; ");
             }
+            if (empTypeChanged) {
+                prevVals.append("EmpType: ").append(user.getEmpType()).append("; ");
+                newValList.append("EmpType: ").append(empType).append("; ");
+            }
+            if (durationChanged) {
+                prevVals.append("Duration: ").append(user.getPartTimeDuration()).append("; ");
+                newValList.append("Duration: ").append(partTimeDuration).append("; ");
+            }
             if (roleChanged) {
                 prevVals.append("Role: ").append(user.getRole()).append("; ");
                 newValList.append("Role: ").append(newRole).append("; ");
                 user.setRole(newRole);
             }
 
+            String previousEndDate = user.getPartTimeEndDate();
             user.setName(name);
             user.setEmail(email);
             user.setManager(manager);
@@ -902,6 +1004,23 @@ public class AdminController {
             user.setDateOfJoining(dateOfJoining);
             user.setCountry(countryCode);
             user.setContactNumber(finalContactNumber);
+            user.setEmpType(empType);
+            user.setPartTimeDuration(partTimeDuration);
+            if ("Part time".equalsIgnoreCase(empType)) {
+                if (user.getPartTimeStartDate() == null) {
+                    user.setPartTimeStartDate(dateOfJoining);
+                }
+                user.setPartTimeEndDate(calculateEndDate(user.getPartTimeStartDate(), partTimeDuration));
+                user.setPtToFtConversionDate(null);
+            } else {
+                if ("Part time".equalsIgnoreCase(user.getEmpType())) {
+                    String ptToFtConversionDate = employeeData.getPtToFtConversionDate() != null ? employeeData.getPtToFtConversionDate().trim() : null;
+                    if (ptToFtConversionDate == null || ptToFtConversionDate.isEmpty()) {
+                        ptToFtConversionDate = java.time.LocalDate.now().toString();
+                    }
+                    user.setPtToFtConversionDate(ptToFtConversionDate);
+                }
+            }
             
             // Re-generate initials in case name changes
             user.setInitials(name.substring(0, 1).toUpperCase());
@@ -918,7 +1037,8 @@ public class AdminController {
 
             boolean anyChanged = nameChanged || emailChanged || managerChanged || projectChanged ||
                                  companyChanged || deptChanged || joiningDateChanged ||
-                                 countryChanged || contactChanged || roleChanged;
+                                 countryChanged || contactChanged || roleChanged ||
+                                 empTypeChanged || durationChanged;
 
             if (anyChanged) {
                 java.util.List<String> changedFields = new java.util.ArrayList<>();
@@ -931,6 +1051,8 @@ public class AdminController {
                 if (joiningDateChanged) changedFields.add("Joining Date");
                 if (countryChanged) changedFields.add("Country");
                 if (contactChanged) changedFields.add("Contact Number");
+                if (empTypeChanged) changedFields.add("Employee Type");
+                if (durationChanged) changedFields.add("Part Time Duration");
                 if (roleChanged) changedFields.add("Role");
 
                 String changedFieldsStr = String.join(", ", changedFields);
@@ -941,15 +1063,48 @@ public class AdminController {
                 }
 
                 AuditLog log = new AuditLog();
-                log.setAction("EMP_Details_Updated");
+                
+                boolean isPtToFtConversion = empTypeChanged && "Part time".equalsIgnoreCase(user.getEmpType()) && "Full time".equalsIgnoreCase(empType);
+                boolean isPtDurationExtended = durationChanged && "Part time".equalsIgnoreCase(user.getEmpType()) && "Part time".equalsIgnoreCase(empType);
+
+                if (isPtToFtConversion) {
+                    log.setAction("Converted to Full-Time");
+                    String reason = employeeData.getReason();
+                    if (reason == null || reason.trim().isEmpty()) {
+                        reason = "-";
+                    } else {
+                        reason = reason.trim();
+                    }
+                    log.setReason(reason);
+                    log.setComments(reason);
+                } else if (isPtDurationExtended) {
+                    log.setAction("Part-Time Duration Extended");
+                    String reason = employeeData.getReason();
+                    if (reason == null || reason.trim().isEmpty()) {
+                        reason = "-";
+                    } else {
+                        reason = reason.trim();
+                    }
+                    log.setReason(reason);
+                    log.setComments(reason);
+                } else {
+                    log.setAction("EMP_Details_Updated");
+                    log.setReason(reasonStr);
+                }
+
                 log.setAffectedEmpId(user.getEmpId());
                 log.setAffectedName(name);
                 log.setPerformedByEmpId(adminEmpId);
                 log.setPerformedByName(adminName);
                 log.setPreviousValues(prevVals.toString().trim());
                 log.setNewValues(newValList.toString().trim());
-                log.setReason(reasonStr);
                 auditLogRepository.save(log);
+
+                if (isPtToFtConversion) {
+                    sendFullTimeConversionNotification(saved, saved.getPtToFtConversionDate(), log.getReason());
+                } else if (isPtDurationExtended) {
+                    sendPartTimeExtensionNotification(saved, previousEndDate, saved.getPartTimeEndDate(), log.getReason());
+                }
             }
 
             // Trigger notification only for admins
@@ -1009,6 +1164,180 @@ public class AdminController {
         
         // If one of them does not have a country code, fallback to raw number match
         return newRaw.equals(existingRaw);
+    }
+
+    @PostMapping("/employees/{id}/extend-part-time")
+    public ResponseEntity<?> extendPartTimeDuration(@PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
+        return userRepository.findById(id).map(user -> {
+            if (!"Part time".equalsIgnoreCase(user.getEmpType())) {
+                return ResponseEntity.badRequest().body("Employee is not a Part-Time employee.");
+            }
+            String duration = body.get("duration");
+            if (duration == null || duration.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Duration is required.");
+            }
+            duration = duration.trim();
+            String reason = body.get("reason");
+            if (reason == null || reason.trim().isEmpty()) {
+                reason = "-";
+            } else {
+                reason = reason.trim();
+            }
+
+            String previousEndDate = user.getPartTimeEndDate();
+            String baseDate = previousEndDate;
+            if (baseDate == null || baseDate.isEmpty()) {
+                baseDate = java.time.LocalDate.now().toString();
+            }
+            String newEndDate = calculateEndDate(baseDate, duration);
+            user.setPartTimeEndDate(newEndDate);
+            user.setPartTimeDuration(duration);
+            User saved = userRepository.save(user);
+
+            // Audit log details
+            String adminEmpId = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            String adminName = adminEmpId;
+            java.util.Optional<User> adminOpt = userRepository.findByEmpId(adminEmpId);
+            if (adminOpt.isPresent()) {
+                adminName = adminOpt.get().getName();
+            }
+
+            AuditLog log = new AuditLog();
+            log.setAction("Part-Time Duration Extended");
+            log.setAffectedEmpId(user.getEmpId());
+            log.setAffectedName(user.getName());
+            log.setPerformedByEmpId(adminEmpId);
+            log.setPerformedByName(adminName);
+            log.setPreviousValues(String.format("EndDate: %s, Duration: %s", previousEndDate, user.getPartTimeDuration()));
+            log.setNewValues(String.format("EndDate: %s, Duration: %s", newEndDate, duration));
+            log.setReason(reason);
+            log.setComments(reason);
+            auditLogRepository.save(log);
+
+            // Send in-app notification and email
+            sendPartTimeExtensionNotification(user, previousEndDate, newEndDate, reason);
+
+            return ResponseEntity.ok(saved);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/employees/{id}/convert-to-full-time")
+    public ResponseEntity<?> convertToFullTime(@PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        return userRepository.findById(id).map(user -> {
+            if (!"Part time".equalsIgnoreCase(user.getEmpType())) {
+                return ResponseEntity.badRequest().body("Employee is not a Part-Time employee.");
+            }
+            String conversionDate = null;
+            String reason = null;
+            if (body != null) {
+                conversionDate = body.get("conversionDate");
+                reason = body.get("reason");
+            }
+            if (conversionDate == null || conversionDate.trim().isEmpty()) {
+                conversionDate = java.time.LocalDate.now().toString();
+            } else {
+                conversionDate = conversionDate.trim();
+            }
+            if (reason == null || reason.trim().isEmpty()) {
+                reason = "-";
+            } else {
+                reason = reason.trim();
+            }
+
+            String previousEmpType = user.getEmpType();
+            String previousDuration = user.getPartTimeDuration();
+            String previousStartDate = user.getPartTimeStartDate();
+            String previousEndDate = user.getPartTimeEndDate();
+            String previousConversionDate = user.getPtToFtConversionDate();
+
+            user.setEmpType("Full time");
+            user.setPtToFtConversionDate(conversionDate);
+            // Keep the previous part-time fields for historical record-keeping
+            
+            User saved = userRepository.save(user);
+
+            // Audit log details
+            String adminEmpId = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            String adminName = adminEmpId;
+            java.util.Optional<User> adminOpt = userRepository.findByEmpId(adminEmpId);
+            if (adminOpt.isPresent()) {
+                adminName = adminOpt.get().getName();
+            }
+
+            AuditLog log = new AuditLog();
+            log.setAction("Converted to Full-Time");
+            log.setAffectedEmpId(user.getEmpId());
+            log.setAffectedName(user.getName());
+            log.setPerformedByEmpId(adminEmpId);
+            log.setPerformedByName(adminName);
+            log.setPreviousValues(String.format("EmpType: %s, Duration: %s, StartDate: %s, EndDate: %s, ConversionDate: %s", previousEmpType, previousDuration, previousStartDate, previousEndDate, previousConversionDate));
+            log.setNewValues(String.format("EmpType: Full time, ConversionDate: %s", conversionDate));
+            log.setReason(reason);
+            log.setComments(reason);
+            auditLogRepository.save(log);
+
+            // Send in-app notification and email
+            sendFullTimeConversionNotification(user, conversionDate, reason);
+
+            return ResponseEntity.ok(saved);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    private String formatDateToDdMmYyyy(String dateStr) {
+        if (dateStr == null || !dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$")) {
+            return dateStr;
+        }
+        try {
+            java.time.LocalDate d = java.time.LocalDate.parse(dateStr);
+            return d.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        } catch (Exception e) {
+            return dateStr;
+        }
+    }
+
+    private void sendPartTimeExtensionNotification(User emp, String previousEndDate, String newEndDate, String reason) {
+        String formattedNewDate = formatDateToDdMmYyyy(newEndDate);
+        String formattedPrevDate = formatDateToDdMmYyyy(previousEndDate);
+        
+        // 1. In-App Notification
+        String message = String.format(
+            "Your Part-Time duration has been extended until %s. Please continue following the Part-Time work schedule until the updated end date.",
+            formattedNewDate
+        );
+        notificationService.sendNotification(emp.getEmpId(), message);
+        
+        // 2. Email Notification
+        if (emp.getEmail() != null && !emp.getEmail().trim().isEmpty()) {
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    emailService.sendPartTimeExtensionEmail(emp, formattedPrevDate, formattedNewDate);
+                } catch (Exception e) {
+                    System.err.println("Error sending Part-Time extension email: " + e.getMessage());
+                }
+            });
+        }
+    }
+
+    private void sendFullTimeConversionNotification(User emp, String conversionDate, String reason) {
+        String formattedDate = formatDateToDdMmYyyy(conversionDate);
+        
+        // 1. In-App Notification
+        String message = String.format(
+            "Congratulations! Your employment status has been updated from Part-Time to Full-Time, effective from %s. Your dashboard and timesheet will now follow the Full-Time workflow.",
+            formattedDate
+        );
+        notificationService.sendNotification(emp.getEmpId(), message);
+        
+        // 2. Email Notification
+        if (emp.getEmail() != null && !emp.getEmail().trim().isEmpty()) {
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    emailService.sendConversionConfirmationEmail(emp, formattedDate);
+                } catch (Exception e) {
+                    System.err.println("Error sending Full-Time conversion email: " + e.getMessage());
+                }
+            });
+        }
     }
 }
 

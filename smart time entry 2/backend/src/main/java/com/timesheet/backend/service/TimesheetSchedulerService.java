@@ -31,6 +31,9 @@ public class TimesheetSchedulerService {
     @Autowired
     private EmailLogService emailLogService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     // 1. Employee Weekly Reminder Email
     // Cron: Friday 4:00 PM IST
     @Scheduled(cron = "0 0 16 * * FRI", zone = "Asia/Kolkata")
@@ -377,6 +380,85 @@ public class TimesheetSchedulerService {
                     System.out.println("Monthly admin reminder already sent today to: " + admin.getEmail());
                 }
             }
+        }
+    }
+
+    // 5. Daily Part-Time Duration Expiry Reminder
+    // Cron: Everyday at 9:00 AM IST
+    @Scheduled(cron = "0 0 9 * * ?", zone = "Asia/Kolkata")
+    public void sendPartTimeExpiryReminders() {
+        System.out.println("Starting Part-Time Expiry Reminders cron job...");
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+
+        List<User> partTimeEmployees = userRepository.findByEmpTypeIgnoreCaseAndEnabled("Part time", true);
+        List<User> admins = userRepository.findByRole("admin");
+
+        if (admins.isEmpty()) {
+            return;
+        }
+
+        for (User emp : partTimeEmployees) {
+            if (emp.getPartTimeEndDate() != null) {
+                try {
+                    LocalDate endDate = LocalDate.parse(emp.getPartTimeEndDate());
+                    long remainingDays = java.time.temporal.ChronoUnit.DAYS.between(today, endDate);
+                    
+                    // Trigger reminders 7, 3, or 1 days before expiry
+                    if (remainingDays == 7 || remainingDays == 3 || remainingDays == 1) {
+                        String subject = "Reminder: Part-Time Employment Duration Ending Soon";
+                        String formattedEndDate = formatDateToDdMmYyyy(emp.getPartTimeEndDate());
+                        String inAppMsg = String.format(
+                            "The Part-Time duration for Employee %s (%s) will expire in %d days (%s). Please review employee status.",
+                            emp.getName(), emp.getEmpId(), remainingDays, formattedEndDate
+                        );
+
+                        String htmlBody = "<html><body>" +
+                                "<p>Hello Admin,</p>" +
+                                "<p>This is a reminder that the Part-Time employment duration for the following employee is ending soon:</p>" +
+                                "<table style='border-collapse: collapse; width: 100%; max-width: 500px;'>" +
+                                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Employee Name:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + emp.getName() + "</td></tr>" +
+                                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Employee ID:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + emp.getEmpId() + "</td></tr>" +
+                                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Current End Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + formattedEndDate + "</td></tr>" +
+                                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Remaining Days:</strong></td><td style='padding: 8px; border: 1px solid #ddd; color: #b45309; font-weight: bold;'>" + remainingDays + " days</td></tr>" +
+                                "</table>" +
+                                "<p><strong>Available Actions:</strong></p>" +
+                                "<ul>" +
+                                "  <li>Extend Part-Time Duration</li>" +
+                                "  <li>Convert to Full-Time</li>" +
+                                "</ul>" +
+                                "<p>Please log in to the Admin Dashboard to perform these actions.</p>" +
+                                "<p>Best Regards,<br/>Smart Time Entry Team</p>" +
+                                "</body></html>";
+
+                        for (User admin : admins) {
+                            if (admin.getEmail() != null && !admin.getEmail().trim().isEmpty()) {
+                                // Unique log type per employee + remaining days, so it sends on 7, 3, and 1 day milestones
+                                String logType = "PT_EXPIRY_" + emp.getEmpId() + "_" + remainingDays;
+                                if (emailLogService.checkAndLogEmailSent(admin.getEmail(), logType, today)) {
+                                    // Send Email
+                                    emailService.sendHtmlEmail(admin.getEmail(), subject, htmlBody);
+                                    // Send In-App Notification
+                                    notificationService.sendNotification(admin.getEmpId(), inAppMsg);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error processing part-time expiry check for user: " + emp.getEmpId() + ", " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private String formatDateToDdMmYyyy(String dateStr) {
+        if (dateStr == null || !dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$")) {
+            return dateStr;
+        }
+        try {
+            java.time.LocalDate d = java.time.LocalDate.parse(dateStr);
+            return d.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        } catch (Exception e) {
+            return dateStr;
         }
     }
 }

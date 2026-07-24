@@ -763,6 +763,23 @@ export default function Dashboard() {
                       <div style={{color: '#334155', fontWeight: '500', marginTop: '1px'}}>{user?.dateOfJoining || 'N/A'}</div>
                     </div>
                     <div>
+                      <span style={{color: '#94a3b8', fontWeight: '600', fontSize: '9px', textTransform: 'uppercase'}}>Employee Type</span>
+                      <div style={{color: '#334155', fontWeight: '500', marginTop: '1px'}}>{user?.empType || 'Full time'}</div>
+                    </div>
+                    {user?.empType === 'Part time' ? (
+                      <div>
+                        <span style={{color: '#94a3b8', fontWeight: '600', fontSize: '9px', textTransform: 'uppercase'}}>Part Time Duration</span>
+                        <div style={{color: '#334155', fontWeight: '500', marginTop: '1px'}}>{user?.partTimeDuration || 'N/A'}</div>
+                      </div>
+                    ) : (
+                      user?.ptToFtConversionDate && (
+                        <div>
+                          <span style={{color: '#94a3b8', fontWeight: '600', fontSize: '9px', textTransform: 'uppercase'}}>Conversion Date</span>
+                          <div style={{color: '#334155', fontWeight: '500', marginTop: '1px'}}>{user?.ptToFtConversionDate}</div>
+                        </div>
+                      )
+                    )}
+                    <div>
                       <span style={{color: '#94a3b8', fontWeight: '600', fontSize: '9px', textTransform: 'uppercase'}}>Date Created</span>
                       <div style={{color: '#334155', fontWeight: '500', marginTop: '1px'}}>
                         {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}

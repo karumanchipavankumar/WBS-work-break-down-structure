@@ -43,6 +43,7 @@ public class DataSeeder {
                 mgr.setDateOfJoining("2020-01-01");
                 mgr.setCountry("India (+91)");
                 mgr.setContactNumber("9199999999");
+                mgr.setEmpType("Full time");
                 userRepository.save(mgr);
                 System.out.println("Dummy Manager created: OFI-2020 / password");
             }
@@ -62,6 +63,7 @@ public class DataSeeder {
                 emp.setDateOfJoining("2024-01-01");
                 emp.setCountry("India (+91)");
                 emp.setContactNumber("9876543210");
+                emp.setEmpType("Full time");
                 userRepository.save(emp);
                 System.out.println("Dummy Employee created: OFI-2024 / password");
             }
@@ -92,6 +94,7 @@ public class DataSeeder {
             admin.setDateOfJoining("2026-06-02");
             admin.setCountry("India (+91)");
             admin.setContactNumber("9000000000");
+            admin.setEmpType("Full time");
             userRepository.save(admin);
             System.out.println("Admin synced: " + adminUsername + " / " + adminPassword);
         };

@@ -46,6 +46,24 @@ public class User {
     private String country;
     private String contactNumber;
 
+    @Column(name = "emp_type")
+    private String empType;
+
+    @Column(name = "part_time_duration")
+    private String partTimeDuration;
+
+    @Column(name = "part_time_start_date")
+    private String partTimeStartDate;
+
+    @Column(name = "part_time_end_date")
+    private String partTimeEndDate;
+
+    @Column(name = "pt_to_ft_conversion_date")
+    private String ptToFtConversionDate;
+
+    @Transient
+    private String reason;
+
     private String resetCode;
     private LocalDateTime resetCodeExpiry;
     

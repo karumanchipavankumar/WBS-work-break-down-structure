@@ -151,4 +151,62 @@ public class EmailService {
     public void sendHtmlEmail(String to, String subject, String html) {
         sendViaBrevo(to, null, subject, html, true);
     }
+
+    @Async
+    public void sendPartTimeWelcomeEmail(User employee) {
+        String subject = "Welcome to the Organization – Part-Time Employment Details";
+        String htmlContent = "<html><body>" +
+                "<p>Hello " + employee.getName() + ",</p>" +
+                "<p>Welcome to our organization! You have been successfully registered as a <strong>Part-Time Employee</strong>.</p>" +
+                "<p>Here are your employment details:</p>" +
+                "<table style='border-collapse: collapse; width: 100%; max-width: 500px;'>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Start Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + (employee.getPartTimeStartDate() != null ? employee.getPartTimeStartDate() : employee.getDateOfJoining()) + "</td></tr>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>End Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + employee.getPartTimeEndDate() + "</td></tr>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Weekly Hours Limit:</strong></td><td style='padding: 8px; border: 1px solid #ddd; font-weight: bold; color: #b45309;'>28 hours per week</td></tr>" +
+                "</table>" +
+                "<p><strong>Instructions for Timesheet Completion:</strong></p>" +
+                "<ul>" +
+                "  <li>Please log in to the timesheet portal weekly to submit your hours.</li>" +
+                "  <li>Ensure that your total hours logged across all days of the week (Monday to Sunday) do not exceed the 28-hour limit.</li>" +
+                "  <li>Lunch break periods are automatically set to 0 hours and are not editable.</li>" +
+                "</ul>" +
+                "<p>Best Regards,<br/>Ideal Folks Team</p>" +
+                "</body></html>";
+        sendViaBrevo(employee.getEmail(), employee.getName(), subject, htmlContent, true);
+    }
+
+    @Async
+    public void sendPartTimeExtensionEmail(User employee, String previousEndDate, String newEndDate) {
+        String subject = "Your Part-Time Employment Duration Has Been Extended";
+        String htmlContent = "<html><body>" +
+                "<p>Hello " + employee.getName() + ",</p>" +
+                "<p>This is to inform you that your Part-Time employment duration has been successfully extended.</p>" +
+                "<p>Here are the details of the extension:</p>" +
+                "<table style='border-collapse: collapse; width: 100%; max-width: 500px;'>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Previous End Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>" + previousEndDate + "</td></tr>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>New Extended End Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd; font-weight: bold; color: #1e3a8a;'>" + newEndDate + "</td></tr>" +
+                "</table>" +
+                "<p>You will continue under Part-Time employment until your new end date (" + newEndDate + ") under the same terms and conditions, including the 28-hour weekly working hour limit.</p>" +
+                "<p>Best Regards,<br/>Ideal Folks Team</p>" +
+                "</body></html>";
+        sendViaBrevo(employee.getEmail(), employee.getName(), subject, htmlContent, true);
+    }
+
+    @Async
+    public void sendConversionConfirmationEmail(User employee, String effectiveDate) {
+        String subject = "Congratulations! Your Employment Status Has Been Updated to Full-Time";
+        String htmlContent = "<html><body>" +
+                "<p>Hello " + employee.getName() + ",</p>" +
+                "<p><strong>Congratulations!</strong> Your employment status has been successfully updated to <strong>Full-Time</strong>.</p>" +
+                "<p>Here are the transition details:</p>" +
+                "<table style='border-collapse: collapse; width: 100%; max-width: 500px;'>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>Effective Conversion Date:</strong></td><td style='padding: 8px; border: 1px solid #ddd; font-weight: bold; color: #15803d;'>" + effectiveDate + "</td></tr>" +
+                "  <tr><td style='padding: 8px; border: 1px solid #ddd;'><strong>New Employment Status:</strong></td><td style='padding: 8px; border: 1px solid #ddd;'>Full-Time Employee</td></tr>" +
+                "</table>" +
+                "<p>From the effective date onward, all Part-Time rules and restrictions (including the 28-hour weekly hour cap and disabled lunch breaks) will no longer apply to your timesheet entries. You will follow the standard Full-Time working day guidelines.</p>" +
+                "<p>Thank you for your commitment to our organization. We wish you continued success in your Full-Time role!</p>" +
+                "<p>Best Regards,<br/>Ideal Folks Team</p>" +
+                "</body></html>";
+        sendViaBrevo(employee.getEmail(), employee.getName(), subject, htmlContent, true);
+    }
 }

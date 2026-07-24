@@ -555,7 +555,7 @@ public class ExcelExportController {
                 // Days Logged: every submitted entry regardless of type or hours
                 if (isSubmitted) {
                     daysLoggedCount++;
-                    if (isWkndOrHol) {
+                    if (isWkndOrHol && "Approved".equalsIgnoreCase(status)) {
                         wkndHolDaysCount++;
                     }
                 }

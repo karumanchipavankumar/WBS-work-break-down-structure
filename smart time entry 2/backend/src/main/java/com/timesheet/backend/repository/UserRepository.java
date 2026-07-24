@@ -17,5 +17,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByContactNumber(String contactNumber);
     // Matches stored values like "IN (+91) | 9876543210" when searching for "9876543210"
     java.util.List<User> findByContactNumberContaining(String contactNumberPart);
+    java.util.List<User> findByEmpTypeIgnoreCaseAndEnabled(String empType, boolean enabled);
 }
 

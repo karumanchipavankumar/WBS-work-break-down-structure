@@ -76,6 +76,22 @@ public class TimesheetController {
             userRepo.findById(entry.getUser().getId()).ifPresent(entry::setUser);
         }
 
+        // Joining Date Validation: Cannot submit timesheet before joining date
+        if (entry.getUser() != null && entry.getUser().getDateOfJoining() != null && !entry.getUser().getDateOfJoining().trim().isEmpty()) {
+            String dojStr = entry.getUser().getDateOfJoining().trim();
+            if (entry.getDate() != null && !entry.getDate().trim().isEmpty()) {
+                try {
+                    java.time.LocalDate doj = java.time.LocalDate.parse(dojStr);
+                    java.time.LocalDate entryDate = java.time.LocalDate.parse(entry.getDate());
+                    if (entryDate.isBefore(doj)) {
+                        return ResponseEntity.badRequest().body("Entries for dates prior to the employee's joining date (" + dojStr + ") are not allowed.");
+                    }
+                } catch (Exception e) {
+                    // ignore format mismatch
+                }
+            }
+        }
+
         String type = entry.getType();
         if (type == null || type.trim().isEmpty()) {
             boolean checkWknd = false;

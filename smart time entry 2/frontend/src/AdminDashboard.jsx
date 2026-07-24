@@ -286,10 +286,13 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [employees, setEmployees] = useState([]);
   const [statusFilter, setStatusFilter] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newEmp, setNewEmp] = useState({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '' });
+  const [newEmp, setNewEmp] = useState({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '', empType: '', partTimeDuration: '' });
   const [domains, setDomains] = useState(['@oryfolks.com', '@idealfolks.com', '@gmail.com']);
   const [formErrors, setFormErrors] = useState({});
   const [isCustomDomain, setIsCustomDomain] = useState(false);
+  const [isOpenDomainSelect, setIsOpenDomainSelect] = useState(false);
+  const domainSelectRef = React.useRef(null);
+  const [isCustomDuration, setIsCustomDuration] = useState(false);
   const [formMessage, setFormMessage] = useState({ type: '', text: '' });
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [emailDuplicateError, setEmailDuplicateError] = useState('');
@@ -320,6 +323,166 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Part-Time Extension Modal State
+  const [extendingEmp, setExtendingEmp] = useState(null);
+  const [extendingDuration, setExtendingDuration] = useState('');
+  const [isExtendingCustom, setIsExtendingCustom] = useState(false);
+  const [extendingError, setExtendingError] = useState('');
+  const [isExtendingSubmit, setIsExtendingSubmit] = useState(false);
+  const [extendingReason, setExtendingReason] = useState('');
+
+  // Conversion Modal State
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [convertingEmp, setConvertingEmp] = useState(null);
+  const [conversionDate, setConversionDate] = useState(getTodayDateString());
+  const [convertError, setConvertError] = useState('');
+  const [isConverting, setIsConverting] = useState(false);
+  const [conversionReason, setConversionReason] = useState('');
+
+  // Edit Employee Profile inside View Profile Modal
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileEditData, setProfileEditData] = useState({
+    name: '',
+    dept: '',
+    email: '',
+    manager: '',
+    projectName: '',
+    companyName: '',
+    dateOfJoining: '',
+    country: '',
+    contactNumber: '',
+    empType: '',
+    partTimeDuration: ''
+  });
+  const [profileEditErrors, setProfileEditErrors] = useState({});
+  const [isEditCustomDuration, setIsEditCustomDuration] = useState(false);
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+
+  const handleStartEditProfile = () => {
+    let rawNum = viewProfileEmp.contactNumber || '';
+    let countryCode = '';
+    if (rawNum.includes(' | ')) {
+      const parts = rawNum.split(' | ');
+      countryCode = parts[0].trim();
+      rawNum = parts[1].trim();
+    } else {
+      countryCode = viewProfileEmp.country || 'IN (+91)';
+    }
+
+    setProfileEditData({
+      name: viewProfileEmp.name || '',
+      dept: viewProfileEmp.dept || '',
+      email: viewProfileEmp.email || '',
+      manager: viewProfileEmp.manager || '',
+      projectName: viewProfileEmp.projectName || '',
+      companyName: viewProfileEmp.companyName || '',
+      dateOfJoining: viewProfileEmp.dateOfJoining || '',
+      country: countryCode,
+      contactNumber: rawNum,
+      empType: viewProfileEmp.empType || 'Full time',
+      partTimeDuration: viewProfileEmp.partTimeDuration || '',
+      ptToFtConversionDate: viewProfileEmp.ptToFtConversionDate || getTodayDateString(),
+      reason: ''
+    });
+
+    const isCustom = viewProfileEmp.partTimeDuration && 
+                     viewProfileEmp.partTimeDuration !== '3 months' && 
+                     viewProfileEmp.partTimeDuration !== '6 months';
+    setIsEditCustomDuration(isCustom);
+    setProfileEditErrors({});
+    setIsEditingProfile(true);
+  };
+
+  const validateProfileEditForm = () => {
+    const errors = {};
+    
+    if (!profileEditData.name || profileEditData.name.trim().length < 3 || profileEditData.name.trim().length > 32 || !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(profileEditData.name)) {
+      errors.name = 'Name must be 3-32 alphabetic characters.';
+    }
+    
+    if (!profileEditData.dept || profileEditData.dept === 'Select Department') {
+      errors.dept = 'Please select a department.';
+    }
+
+    if (!profileEditData.manager || profileEditData.manager.trim().length < 3 || profileEditData.manager.trim().length > 32) {
+      errors.manager = 'Manager name must be 3-32 characters.';
+    }
+
+    if (!profileEditData.email || !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(profileEditData.email)) {
+      errors.email = 'Please enter a valid email address.';
+    }
+
+    if (!profileEditData.projectName || profileEditData.projectName.trim().length < 2 || profileEditData.projectName.trim().length > 50) {
+      errors.projectName = 'Project name must be 2-50 characters.';
+    }
+
+    if (!profileEditData.companyName || profileEditData.companyName.trim().length < 2 || profileEditData.companyName.trim().length > 50) {
+      errors.companyName = 'Company name must be 2-50 characters.';
+    }
+
+    if (!profileEditData.dateOfJoining) {
+      errors.dateOfJoining = 'Please select a joining date.';
+    }
+
+    if (!profileEditData.country) {
+      errors.country = 'Please select a country.';
+    }
+
+    if (!profileEditData.contactNumber || profileEditData.contactNumber.trim().length === 0) {
+      errors.contactNumber = 'Please enter a contact number.';
+    } else {
+      if (profileEditData.country === 'India (+91)' || profileEditData.country === 'IN (+91)') {
+        if (!/^\d{10}$/.test(profileEditData.contactNumber)) {
+          errors.contactNumber = 'Please enter a valid 10-digit mobile number.';
+        }
+      } else if (profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)') {
+        if (!/^\d{11}$/.test(profileEditData.contactNumber)) {
+          errors.contactNumber = 'Please enter a valid 11-digit mobile number.';
+        }
+      }
+    }
+
+    if (!profileEditData.empType) {
+      errors.empType = 'Please select an employee type.';
+    }
+
+    if (profileEditData.empType === 'Part time') {
+      if (!profileEditData.partTimeDuration || profileEditData.partTimeDuration.trim().length === 0) {
+        errors.partTimeDuration = 'Please specify a duration.';
+      }
+    }
+
+    if (profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time') {
+      if (!profileEditData.ptToFtConversionDate || !profileEditData.ptToFtConversionDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        errors.ptToFtConversionDate = 'Please select a valid conversion effective date.';
+      }
+    }
+
+    setProfileEditErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveProfileEdit = async () => {
+    if (!validateProfileEditForm()) return;
+    setIsProfileSaving(true);
+    try {
+      const payload = {
+        ...profileEditData
+      };
+      
+      const res = await api.put(`/admin/employees/${viewProfileEmp.id}`, payload);
+      showAlert('Employee profile updated successfully!');
+      setViewProfileEmp(res.data);
+      setIsEditingProfile(false);
+      loadEmployees();
+    } catch (e) {
+      const errorMsg = e.response?.data || 'Failed to update employee profile.';
+      showAlert(errorMsg);
+    } finally {
+      setIsProfileSaving(false);
+    }
+  };
 
   const loadEmployees = async () => {
     try {
@@ -353,8 +516,88 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     }
   };
 
+  const handleConvertToFullTimeClick = (emp) => {
+    if (!emp) return;
+    setConvertingEmp(emp);
+    setConversionDate(getTodayDateString());
+    setConversionReason('');
+    setConvertError('');
+    setIsConverting(false);
+    setIsConvertModalOpen(true);
+  };
+
+  const handleConvertSubmit = async () => {
+    if (!convertingEmp || !conversionDate) {
+      setConvertError('Please select a conversion effective date.');
+      return;
+    }
+    setIsConverting(true);
+    setConvertError('');
+    try {
+      const res = await api.post(`/admin/employees/${convertingEmp.id}/convert-to-full-time`, {
+        conversionDate,
+        reason: conversionReason
+      });
+      showAlert('Employee successfully converted to Full-Time!');
+      setIsConvertModalOpen(false);
+      setConvertingEmp(null);
+      if (viewProfileEmp && viewProfileEmp.id === convertingEmp.id) {
+        setViewProfileEmp(res.data);
+      }
+      loadEmployees();
+    } catch (e) {
+      const errorMsg = e.response?.data?.message || e.response?.data || 'Failed to convert employee to Full-Time';
+      setConvertError(errorMsg);
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  const handleExtendPartTimeClick = (emp) => {
+    setExtendingEmp(emp);
+    setExtendingDuration('');
+    setExtendingReason('');
+    setIsExtendingCustom(false);
+    setExtendingError('');
+    setIsExtendingSubmit(false);
+  };
+
+  const handleExtendPartTimeSubmit = async () => {
+    if (!extendingEmp || !extendingDuration.trim()) {
+      setExtendingError('Please select or enter a duration.');
+      return;
+    }
+    setIsExtendingSubmit(true);
+    setExtendingError('');
+    try {
+      const res = await api.post(`/admin/employees/${extendingEmp.id}/extend-part-time`, {
+        duration: extendingDuration.trim(),
+        reason: extendingReason
+      });
+      showAlert('Part-Time duration successfully extended!');
+      // Update local state views
+      if (viewProfileEmp && viewProfileEmp.id === extendingEmp.id) {
+        setViewProfileEmp(res.data);
+      }
+      setExtendingEmp(null);
+      loadEmployees();
+    } catch (e) {
+      const errorMsg = e.response?.data || 'Failed to extend Part-Time duration';
+      setExtendingError(errorMsg);
+    } finally {
+      setIsExtendingSubmit(false);
+    }
+  };
+
   useEffect(() => {
     loadDomains();
+    const clickOutside = (e) => {
+      if (domainSelectRef.current && !domainSelectRef.current.contains(e.target)) {
+        setIsOpenDomainSelect(false);
+      }
+    };
+    document.addEventListener('mousedown', clickOutside);
+    return () => document.removeEventListener('mousedown', clickOutside);
   }, []);
 
   useEffect(() => {
@@ -630,8 +873,20 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       errors.contactNumber = contactDuplicateError;
     }
 
+    // Employee Type
+    if (!newEmp.empType) {
+      errors.empType = 'Please select an employee type.';
+    }
+
+    // Part Time Duration (only if employee type is Part time)
+    if (newEmp.empType === 'Part time') {
+      if (!newEmp.partTimeDuration || newEmp.partTimeDuration.trim().length === 0) {
+        errors.partTimeDuration = 'Please specify a duration.';
+      }
+    }
+
     const focusFirstError = (errs) => {
-      const fieldsOrder = ['name', 'empId', 'dept', 'manager', 'emailUsername', 'emailDomain', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber'];
+      const fieldsOrder = ['name', 'empId', 'dept', 'manager', 'emailUsername', 'emailDomain', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber', 'empType', 'partTimeDuration'];
       for (const field of fieldsOrder) {
         if (errs[field]) {
           setTimeout(() => {
@@ -652,10 +907,13 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   };
 
   const checkPrecedingFields = (currentField) => {
-    const fieldsOrder = ['name', 'empId', 'dept', 'manager', 'emailUsername', 'emailDomain', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber'];
+    const fieldsOrder = ['name', 'empId', 'dept', 'manager', 'emailUsername', 'emailDomain', 'projectName', 'companyName', 'dateOfJoining', 'country', 'contactNumber', 'empType', 'partTimeDuration'];
     const currentIndex = fieldsOrder.indexOf(currentField);
     for (let i = 0; i < currentIndex; i++) {
       const field = fieldsOrder[i];
+      if (field === 'partTimeDuration' && newEmp.empType !== 'Part time') {
+        continue;
+      }
       const val = newEmp[field];
       if (!val || val.trim().length === 0 || (field === 'dept' && val === 'Select Department')) {
         setFormErrors(prev => ({ ...prev, [field]: 'Please fill in this field before proceeding.' }));
@@ -719,7 +977,8 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
 
       await api.post('/admin/employees', payload);
 
-      setNewEmp({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '' });
+      setNewEmp({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '', empType: '', partTimeDuration: '' });
+      setIsCustomDuration(false);
       setFormErrors({});
       setEmailDuplicateError('');
       setContactDuplicateError('');
@@ -753,7 +1012,9 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       (newEmp.projectName || '').trim() !== '' ||
       (newEmp.companyName || '').trim() !== '' ||
       (newEmp.country || '') !== '' ||
-      (newEmp.contactNumber || '').trim() !== '';
+      (newEmp.contactNumber || '').trim() !== '' ||
+      (newEmp.empType || '').trim() !== '' ||
+      (newEmp.partTimeDuration || '').trim() !== '';
   };
 
   useEffect(() => {
@@ -774,8 +1035,9 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       if (!confirmLeave) return;
     }
     setIsModalOpen(false);
-    setNewEmp({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '' });
+    setNewEmp({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '', empType: '', partTimeDuration: '' });
     setIsCustomDomain(false);
+    setIsCustomDuration(false);
     setFormErrors({});
     setEmailDuplicateError('');
     setContactDuplicateError('');
@@ -890,6 +1152,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       }
       if (statusFilter === 'Inactive') {
         return emp.enabled === false;
+      }
+      if (statusFilter === 'Part time') {
+        return emp.empType === 'Part time';
+      }
+      if (statusFilter === 'Full time') {
+        return emp.empType === 'Full time' || !emp.empType;
       }
       return true;
     })
@@ -1067,6 +1335,8 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               <option value="All">All Emp's</option>
               <option value="Active">Active Emp's</option>
               <option value="Inactive">Inactive Emp's</option>
+              <option value="Part time">Part Time Emp's</option>
+              <option value="Full time">Full Time Emp's</option>
             </select>
             <div style={{
               position: 'absolute',
@@ -1150,20 +1420,41 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    title="View Profile"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewProfileEmp(emp);
-                    }}
-                    style={{ background: 'transparent', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="12" cy="7" r="4"></circle>
-                    </svg>
-                  </button>
+                  <div style={{ position: 'relative', display: 'inline-flex' }}>
+                    <button
+                      type="button"
+                      title="View Profile"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setViewProfileEmp(emp);
+                      }}
+                      style={{ background: 'transparent', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                      </svg>
+                    </button>
+                    {emp.empType === 'Part time' && (
+                      <span style={{
+                        position: 'absolute',
+                        top: '-7px',
+                        right: '-7px',
+                        background: 'linear-gradient(135deg, #f97316, #ea580c)',
+                        color: '#fff',
+                        fontSize: '8px',
+                        fontWeight: '800',
+                        lineHeight: 1,
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        letterSpacing: '0.4px',
+                        boxShadow: '0 1px 4px rgba(234,88,12,0.5)',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                        zIndex: 1,
+                      }}>PT</span>
+                    )}
+                  </div>
 
                   {isInactive ? (
                     <button
@@ -1373,38 +1664,187 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     DOMAIN <span style={{ color: '#e11d48' }}>*</span>
                   </label>
                   {!isCustomDomain ? (
-                    <select
-                      disabled={isSubmitting}
-                      className={`form-input ${formErrors.emailDomain ? 'invalid' : ''}`}
-                      value={newEmp.emailDomain || ''}
-                      onChange={async (e) => {
-                        if (!checkPrecedingFields('emailDomain')) return;
-                        const val = e.target.value;
-                        if (val === 'custom') {
-                          setIsCustomDomain(true);
-                          setNewEmp(prev => ({ ...prev, emailDomain: '@' }));
-                          setFormErrors(prev => ({ ...prev, emailDomain: 'Domain is required' }));
-                        } else {
-                          setNewEmp(prev => ({ ...prev, emailDomain: val }));
-                          const err = validateDomain(val);
-                          setFormErrors(prev => ({ ...prev, emailDomain: err }));
-                          setEmailDuplicateError('');
-                          const combined = (newEmp.emailUsername || '').trim() + val;
-                          await checkEmailUniqueness(combined);
-                        }
-                      }}
-                      onFocus={e => {
-                        if (!checkPrecedingFields('emailDomain')) {
-                          e.target.blur();
-                        }
-                      }}
-                    >
-                      <option value="">Select Domain</option>
-                      {domains.map(d => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                      <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
-                    </select>
+                    <div ref={domainSelectRef} style={{ position: 'relative', width: '100%' }}>
+                      <div
+                        onClick={() => {
+                          if (!isSubmitting) {
+                            if (!checkPrecedingFields('emailDomain')) return;
+                            setIsOpenDomainSelect(!isOpenDomainSelect);
+                          }
+                        }}
+                        className={`form-input ${formErrors.emailDomain ? 'invalid' : ''}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          background: '#fff',
+                          height: '38px',
+                          padding: '8px 12px',
+                          border: '1.5px solid #cbd5e1',
+                          borderRadius: '6px',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <span style={{ color: newEmp.emailDomain ? '#0f172a' : '#94a3b8' }}>
+                          {newEmp.emailDomain || 'Select Domain'}
+                        </span>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          style={{
+                            marginLeft: 'auto',
+                            transform: isOpenDomainSelect ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 0.2s ease',
+                            color: '#64748b'
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </div>
+
+                      {isOpenDomainSelect && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            background: '#fff',
+                            border: '1.5px solid #e2e8f0',
+                            borderRadius: '6px',
+                            marginTop: '4px',
+                            maxHeight: '220px',
+                            overflowY: 'auto',
+                            zIndex: 1000,
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                          }}
+                        >
+                          <div
+                            style={{
+                              background: '#1f3360',
+                              color: '#fff',
+                              padding: '8px 12px',
+                              fontSize: '13px',
+                              fontWeight: '600',
+                              borderTopLeftRadius: '4px',
+                              borderTopRightRadius: '4px'
+                            }}
+                          >
+                            Select Domain
+                          </div>
+
+                          {domains.map((d) => (
+                            <div
+                              key={d}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                color: '#334155',
+                                transition: 'background 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#f1f5f9';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                              }}
+                              onClick={async () => {
+                                setNewEmp(prev => ({ ...prev, emailDomain: d }));
+                                const err = validateDomain(d);
+                                setFormErrors(prev => ({ ...prev, emailDomain: err }));
+                                setEmailDuplicateError('');
+                                const combined = (newEmp.emailUsername || '').trim() + d;
+                                await checkEmailUniqueness(combined);
+                                setIsOpenDomainSelect(false);
+                              }}
+                            >
+                              <span>{d}</span>
+                              <button
+                                type="button"
+                                title="Delete domain"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`Are you sure you want to delete domain ${d}?`)) {
+                                    try {
+                                      await api.delete(`/admin/domains?name=${encodeURIComponent(d)}`);
+                                      if (newEmp.emailDomain === d) {
+                                        setNewEmp(prev => ({ ...prev, emailDomain: '' }));
+                                      }
+                                      await loadDomains();
+                                    } catch (err) {
+                                      const errMsg = typeof err.response?.data === 'string'
+                                        ? err.response.data
+                                        : (err.response?.data?.message || err.message || "Failed to delete domain");
+                                      alert(errMsg);
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: '#ef4444',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.15s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = '#b91c1c';
+                                  e.currentTarget.style.background = '#fee2e2';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = '#ef4444';
+                                  e.currentTarget.style.background = 'transparent';
+                                }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="3 6 5 6 21 6"></polyline>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+
+                          <div
+                            style={{
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: '600',
+                              color: 'var(--teal)',
+                              transition: 'background 0.15s ease',
+                              borderTop: '1px solid #f1f5f9'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#f1f5f9';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'transparent';
+                            }}
+                            onClick={() => {
+                              setIsCustomDomain(true);
+                              setNewEmp(prev => ({ ...prev, emailDomain: '@' }));
+                              setFormErrors(prev => ({ ...prev, emailDomain: 'Domain is required' }));
+                              setIsOpenDomainSelect(false);
+                            }}
+                          >
+                            Other / Enter Manually...
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                       <input
@@ -1623,6 +2063,126 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 </div>
               </div>
 
+              <div className="modal-row">
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">EMPLOYEE TYPE <span style={{ color: '#e11d48' }}>*</span></label>
+                  <select
+                    id="empType"
+                    name="empType"
+                    disabled={isSubmitting}
+                    className={`form-input ${formErrors.empType ? 'invalid' : ''}`}
+                    value={newEmp.empType || ''}
+                    onChange={e => {
+                      if (!checkPrecedingFields('empType')) return;
+                      const val = e.target.value;
+                      setNewEmp({ ...newEmp, empType: val, partTimeDuration: '' });
+                      setFormErrors(prev => ({ ...prev, empType: '', partTimeDuration: '' }));
+                      setIsCustomDuration(false);
+                    }}
+                    onFocus={e => {
+                      if (!checkPrecedingFields('empType')) {
+                        e.target.blur();
+                      }
+                    }}
+                  >
+                    <option value="">Select Employee Type</option>
+                    <option value="Full time">Full time</option>
+                    <option value="Part time">Part time</option>
+                  </select>
+                  {formErrors.empType && <span style={{ color: '#d32f2f', fontSize: '11px' }}>{formErrors.empType}</span>}
+                </div>
+
+                {newEmp.empType === 'Part time' ? (
+                  <div className="form-group" style={{ flex: 1.2 }}>
+                    <label className="form-label">PART TIME DURATION <span style={{ color: '#e11d48' }}>*</span></label>
+                    {!isCustomDuration ? (
+                      <select
+                        id="partTimeDuration"
+                        name="partTimeDuration"
+                        disabled={isSubmitting}
+                        className={`form-input ${formErrors.partTimeDuration ? 'invalid' : ''}`}
+                        value={newEmp.partTimeDuration || ''}
+                        onChange={e => {
+                          if (!checkPrecedingFields('partTimeDuration')) return;
+                          const val = e.target.value;
+                          if (val === 'custom') {
+                            setIsCustomDuration(true);
+                            setNewEmp(prev => ({ ...prev, partTimeDuration: '' }));
+                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required' }));
+                          } else {
+                            setNewEmp(prev => ({ ...prev, partTimeDuration: val }));
+                            setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                          }
+                        }}
+                        onFocus={e => {
+                          if (!checkPrecedingFields('partTimeDuration')) {
+                            e.target.blur();
+                          }
+                        }}
+                      >
+                        <option value="">Select Duration</option>
+                        <option value="3 months">3 months</option>
+                        <option value="6 months">6 months</option>
+                        <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
+                      </select>
+                    ) : (
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          id="partTimeDuration"
+                          name="partTimeDuration"
+                          type="text"
+                          disabled={isSubmitting}
+                          className={`form-input ${formErrors.partTimeDuration ? 'invalid' : ''}`}
+                          style={{ paddingRight: '45px', marginBottom: '0px' }}
+                          placeholder="e.g. 9 months"
+                          value={newEmp.partTimeDuration || ''}
+                          onChange={e => {
+                            if (!checkPrecedingFields('partTimeDuration')) return;
+                            const val = e.target.value;
+                            setNewEmp(prev => ({ ...prev, partTimeDuration: val }));
+                            if (!val || val.trim().length === 0) {
+                              setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
+                            } else {
+                              setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                            }
+                          }}
+                          onFocus={e => {
+                            if (!checkPrecedingFields('partTimeDuration')) {
+                              e.target.blur();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomDuration(false);
+                            setNewEmp(prev => ({ ...prev, partTimeDuration: '' }));
+                            setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                          }}
+                          title="Back to list"
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            color: 'var(--teal)',
+                            fontWeight: 'bold',
+                            padding: '4px'
+                          }}
+                        >
+                          List
+                        </button>
+                      </div>
+                    )}
+                    {formErrors.partTimeDuration && <span style={{ color: '#d32f2f', fontSize: '11px' }}>{formErrors.partTimeDuration}</span>}
+                  </div>
+                ) : (
+                  <div className="form-group" style={{ flex: 1.2 }} />
+                )}
+              </div>
+
               <div className="modal-actions">
                 <button type="button" className="btn-cancel" style={{ flex: 1 }} onClick={handleCloseModal} disabled={isSubmitting}>Cancel</button>
                 <button type="submit" className="btn-submit-modal" style={{ flex: 1, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? 'not-allowed' : 'pointer' }} disabled={isSubmitting}>
@@ -1832,6 +2392,279 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                   disabled={isDeleting}
                 >
                   {isDeleting ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {extendingEmp && (
+        <div className="modal-overlay open" style={{ zIndex: 1010, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}>
+          <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Extend Part-Time Duration
+              </h3>
+              <button
+                className="modal-close"
+                type="button"
+                onClick={() => { if (!isExtendingSubmit) setExtendingEmp(null); }}
+                disabled={isExtendingSubmit}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
+              Please select or enter the new Part-Time duration for <strong>{extendingEmp.name}</strong> ({extendingEmp.empId}). This will update their Part-Time end date and reset notifications.
+            </div>
+
+            <form onSubmit={e => { e.preventDefault(); handleExtendPartTimeSubmit(); }}>
+              {extendingError && (
+                <div style={{
+                  padding: '10px',
+                  marginBottom: '15px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ffebee',
+                  color: '#c62828',
+                  fontSize: '12px',
+                  border: '1px solid #ef9a9a',
+                  fontWeight: '500'
+                }}>
+                  {extendingError}
+                </div>
+              )}
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  NEW DURATION <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                {!isExtendingCustom ? (
+                  <select
+                    className="form-input"
+                    value={extendingDuration}
+                    disabled={isExtendingSubmit}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'custom') {
+                        setIsExtendingCustom(true);
+                        setExtendingDuration('');
+                      } else {
+                        setExtendingDuration(val);
+                      }
+                    }}
+                  >
+                    <option value="">Select Duration...</option>
+                    <option value="3 months">3 months</option>
+                    <option value="6 months">6 months</option>
+                    <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
+                  </select>
+                ) : (
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ paddingRight: '45px', marginBottom: '0px', width: '100%' }}
+                      placeholder="e.g. 9 months"
+                      value={extendingDuration}
+                      disabled={isExtendingSubmit}
+                      onChange={e => setExtendingDuration(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExtendingCustom(false);
+                        setExtendingDuration('');
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        color: 'var(--teal)',
+                        fontWeight: 'bold',
+                        padding: '4px'
+                      }}
+                    >
+                      List
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  REASON / COMMENTS
+                </label>
+                <textarea
+                  className="form-input"
+                  style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
+                  placeholder="Enter reason for extending duration..."
+                  value={extendingReason}
+                  disabled={isExtendingSubmit}
+                  onChange={e => setExtendingReason(e.target.value)}
+                />
+              </div>
+
+              <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  style={{ flex: 1, height: '40px', cursor: isExtendingSubmit ? 'not-allowed' : 'pointer' }}
+                  onClick={() => setExtendingEmp(null)}
+                  disabled={isExtendingSubmit}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit-modal"
+                  style={{
+                    flex: 1,
+                    height: '40px',
+                    backgroundColor: 'var(--teal)',
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    borderRadius: '8px',
+                    border: 'none',
+                    transition: 'all 0.2s',
+                    opacity: isExtendingSubmit ? 0.6 : 1,
+                    cursor: isExtendingSubmit ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={isExtendingSubmit}
+                >
+                  {isExtendingSubmit ? 'Updating...' : 'Confirm Extend'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isConvertModalOpen && convertingEmp && (
+        <div className="modal-overlay open" style={{ zIndex: 1010, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}>
+          <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Convert to Full-Time
+              </h3>
+              <button
+                className="modal-close"
+                type="button"
+                onClick={() => { if (!isConverting) { setIsConvertModalOpen(false); setConvertingEmp(null); } }}
+                disabled={isConverting}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
+              Please select the effective date for converting <strong>{convertingEmp.name}</strong> ({convertingEmp.empId}) to Full-Time. 
+              Entries before this date will remain Part-Time, while entries from this date onwards will follow the Full-Time workflow.
+            </div>
+
+            <form onSubmit={e => { e.preventDefault(); handleConvertSubmit(); }}>
+              {convertError && (
+                <div style={{
+                  padding: '10px',
+                  marginBottom: '15px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ffebee',
+                  color: '#c62828',
+                  fontSize: '12px',
+                  border: '1px solid #ef9a9a',
+                  fontWeight: '500'
+                }}>
+                  {convertError}
+                </div>
+              )}
+
+              {(() => {
+                let isEarly = false;
+                if (convertingEmp.partTimeEndDate) {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const endDate = new Date(convertingEmp.partTimeEndDate);
+                  if (today < endDate) {
+                    isEarly = true;
+                  }
+                }
+                if (isEarly) {
+                  return (
+                    <div style={{
+                      padding: '10px',
+                      marginBottom: '15px',
+                      borderRadius: '6px',
+                      backgroundColor: '#fff3cd',
+                      color: '#856404',
+                      fontSize: '12px',
+                      border: '1px solid #ffeeba',
+                      fontWeight: '500',
+                      lineHeight: '1.4'
+                    }}>
+                      ⚠️ <strong>Warning:</strong> The employee's Part-Time duration is still in progress (scheduled to end on {convertingEmp.partTimeEndDate}).
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  CONVERSION EFFECTIVE DATE <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={conversionDate}
+                  disabled={isConverting}
+                  onChange={e => setConversionDate(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  REASON / COMMENTS
+                </label>
+                <textarea
+                  className="form-input"
+                  style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
+                  placeholder="Enter reason for conversion to Full-Time..."
+                  value={conversionReason}
+                  disabled={isConverting}
+                  onChange={e => setConversionReason(e.target.value)}
+                />
+              </div>
+
+              <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  style={{ flex: 1, height: '40px', cursor: isConverting ? 'not-allowed' : 'pointer' }}
+                  onClick={() => { setIsConvertModalOpen(false); setConvertingEmp(null); }}
+                  disabled={isConverting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit-modal"
+                  style={{
+                    flex: 1,
+                    height: '40px',
+                    backgroundColor: 'var(--teal)',
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    borderRadius: '8px',
+                    border: 'none',
+                    transition: 'all 0.2s',
+                    opacity: isConverting ? 0.6 : 1,
+                    cursor: isConverting ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={isConverting}
+                >
+                  {isConverting ? 'Converting...' : 'Convert to FT'}
                 </button>
               </div>
             </form>
@@ -2224,69 +3057,483 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
             </div>
 
             {/* Details Fields */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '14px 20px',
-              textAlign: 'left',
-              fontSize: '13px',
-              borderTop: '1px solid #f1f5f9',
-              paddingTop: '20px',
-              marginBottom: '12px',
-              overflowY: 'auto'
-            }}>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Employee ID</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.empId || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Department</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.dept || 'N/A'}</div>
-              </div>
-              <div style={{ gridColumn: 'span 2' }}>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email Address</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px', wordBreak: 'break-all' }}>{viewProfileEmp.email || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Manager</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.manager || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date of Joining</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.dateOfJoining || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Project Name</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.projectName || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Company Name</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.companyName || 'N/A'}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Country</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{getDisplayCountry(viewProfileEmp.country)}</div>
-              </div>
-              <div>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Number</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{getDisplayContactNumber(viewProfileEmp.contactNumber, viewProfileEmp.country)}</div>
-              </div>
-              <div style={{ gridColumn: 'span 2' }}>
-                <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date Created</span>
-                <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>
-                  {viewProfileEmp.createdAt ? new Date(viewProfileEmp.createdAt).toLocaleDateString() : 'N/A'}
+            {!isEditingProfile ? (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '14px 20px',
+                textAlign: 'left',
+                fontSize: '13px',
+                borderTop: '1px solid #f1f5f9',
+                paddingTop: '20px',
+                marginBottom: '12px',
+                overflowY: 'auto'
+              }}>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Employee ID</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.empId || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Department</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.dept || 'N/A'}</div>
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email Address</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px', wordBreak: 'break-all' }}>{viewProfileEmp.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Manager</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.manager || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date of Joining</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.dateOfJoining || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Project Name</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.projectName || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Company Name</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.companyName || 'N/A'}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Country</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{getDisplayCountry(viewProfileEmp.country)}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Number</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{getDisplayContactNumber(viewProfileEmp.contactNumber, viewProfileEmp.country)}</div>
+                </div>
+                <div>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Employee Type</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.empType || 'Full time'}</div>
+                </div>
+                {viewProfileEmp.empType === 'Part time' ? (
+                  <div>
+                    <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Part Time Duration</span>
+                    <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.partTimeDuration || 'N/A'}</div>
+                  </div>
+                ) : (
+                  viewProfileEmp.ptToFtConversionDate ? (
+                    <div>
+                      <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Conversion Date</span>
+                      <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>{viewProfileEmp.ptToFtConversionDate}</div>
+                    </div>
+                  ) : (
+                    <div />
+                  )
+                )}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ color: '#94a3b8', fontWeight: '600', fontSize: '9.5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date Created</span>
+                  <div style={{ color: '#334155', fontWeight: '500', marginTop: '2px' }}>
+                    {viewProfileEmp.createdAt ? new Date(viewProfileEmp.createdAt).toLocaleDateString() : 'N/A'}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              /* Edit Form Layout */
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '14px 20px',
+                textAlign: 'left',
+                fontSize: '13px',
+                borderTop: '1px solid #f1f5f9',
+                paddingTop: '20px',
+                marginBottom: '12px',
+                overflowY: 'auto'
+              }}>
+                {/* Employee ID (Read-only) */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Employee ID</label>
+                  <input
+                    type="text"
+                    disabled={true}
+                    className="form-input"
+                    value={viewProfileEmp.empId || 'N/A'}
+                    style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }}
+                  />
+                </div>
 
-            <div style={{ flexShrink: 0, marginTop: '20px' }}>
-              <button
-                className="btn btn-ghost btn-md"
-                onClick={() => setViewProfileEmp(null)}
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', fontSize: '13.5px' }}
-              >
-                Close View
-              </button>
+                {/* Name */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Name <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="text"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.name ? 'invalid' : ''}`}
+                    value={profileEditData.name}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, name: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, name: '' });
+                    }}
+                  />
+                  {profileEditErrors.name && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.name}</span>}
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Department <span style={{ color: '#e11d48' }}>*</span></label>
+                  <select
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.dept ? 'invalid' : ''}`}
+                    value={profileEditData.dept}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, dept: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, dept: '' });
+                    }}
+                  >
+                    <option value="">Select Department</option>
+                    <option value="HR">HR</option>
+                    <option value="IT">IT</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Operations">Operations</option>
+                    <option value="Sales">Sales</option>
+                    <option value="other">other</option>
+                  </select>
+                  {profileEditErrors.dept && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.dept}</span>}
+                </div>
+
+                {/* Manager */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Manager <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="text"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.manager ? 'invalid' : ''}`}
+                    value={profileEditData.manager}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, manager: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, manager: '' });
+                    }}
+                  />
+                  {profileEditErrors.manager && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.manager}</span>}
+                </div>
+
+                {/* Email Address */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Email Address <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="email"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.email ? 'invalid' : ''}`}
+                    value={profileEditData.email}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, email: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, email: '' });
+                    }}
+                  />
+                  {profileEditErrors.email && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.email}</span>}
+                </div>
+
+                {/* Date of Joining */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Date of Joining <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="date"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.dateOfJoining ? 'invalid' : ''}`}
+                    value={profileEditData.dateOfJoining}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, dateOfJoining: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, dateOfJoining: '' });
+                    }}
+                  />
+                  {profileEditErrors.dateOfJoining && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.dateOfJoining}</span>}
+                </div>
+
+                {/* Project Name */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Project Name <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="text"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.projectName ? 'invalid' : ''}`}
+                    value={profileEditData.projectName}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, projectName: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, projectName: '' });
+                    }}
+                  />
+                  {profileEditErrors.projectName && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.projectName}</span>}
+                </div>
+
+                {/* Company Name */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Company Name <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="text"
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.companyName ? 'invalid' : ''}`}
+                    value={profileEditData.companyName}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, companyName: e.target.value });
+                      setProfileEditErrors({ ...profileEditErrors, companyName: '' });
+                    }}
+                  />
+                  {profileEditErrors.companyName && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.companyName}</span>}
+                </div>
+
+                {/* Country */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Country <span style={{ color: '#e11d48' }}>*</span></label>
+                  <select
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.country ? 'invalid' : ''}`}
+                    value={profileEditData.country}
+                    onChange={e => {
+                      setProfileEditData({ ...profileEditData, country: e.target.value, contactNumber: '' });
+                      setProfileEditErrors({ ...profileEditErrors, country: '', contactNumber: '' });
+                    }}
+                  >
+                    <option value="">Select Country</option>
+                    <option value="IN (+91)">IN (+91)</option>
+                    <option value="JP (+81)">JP (+81)</option>
+                  </select>
+                  {profileEditErrors.country && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.country}</span>}
+                </div>
+
+                {/* Contact Number */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Number <span style={{ color: '#e11d48' }}>*</span></label>
+                  <input
+                    type="text"
+                    maxLength={profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)' ? 11 : 10}
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.contactNumber ? 'invalid' : ''}`}
+                    placeholder="Enter Number"
+                    value={profileEditData.contactNumber}
+                    onChange={e => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setProfileEditData({ ...profileEditData, contactNumber: val });
+                      if (!val) {
+                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a contact number.' }));
+                      } else if ((profileEditData.country === 'India (+91)' || profileEditData.country === 'IN (+91)') && val.length !== 10) {
+                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a 10-digit number.' }));
+                      } else if ((profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)') && val.length !== 11) {
+                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter an 11-digit number.' }));
+                      } else {
+                        setProfileEditErrors(prev => ({ ...prev, contactNumber: '' }));
+                      }
+                    }}
+                  />
+                  {profileEditErrors.contactNumber && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.contactNumber}</span>}
+                </div>
+
+                {/* Employee Type */}
+                <div>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Employee Type <span style={{ color: '#e11d48' }}>*</span></label>
+                  <select
+                    disabled={isProfileSaving}
+                    className={`form-input ${profileEditErrors.empType ? 'invalid' : ''}`}
+                    value={profileEditData.empType}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setProfileEditData({ ...profileEditData, empType: val, partTimeDuration: '' });
+                      setProfileEditErrors(prev => ({ ...prev, empType: '', partTimeDuration: '' }));
+                      setIsEditCustomDuration(false);
+                    }}
+                  >
+                    <option value="">Select Employee Type</option>
+                    <option value="Full time">Full time</option>
+                    <option value="Part time">Part time</option>
+                  </select>
+                  {profileEditErrors.empType && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.empType}</span>}
+                </div>
+
+                {/* Part Time Duration */}
+                {profileEditData.empType === 'Part time' ? (
+                  <div>
+                    <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Part Time Duration <span style={{ color: '#e11d48' }}>*</span></label>
+                    {!isEditCustomDuration ? (
+                      <select
+                        disabled={isProfileSaving}
+                        className={`form-input ${profileEditErrors.partTimeDuration ? 'invalid' : ''}`}
+                        value={profileEditData.partTimeDuration}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === 'custom') {
+                            setIsEditCustomDuration(true);
+                            setProfileEditData(prev => ({ ...prev, partTimeDuration: '' }));
+                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
+                          } else {
+                            setProfileEditData(prev => ({ ...prev, partTimeDuration: val }));
+                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                          }
+                        }}
+                      >
+                        <option value="">Select Duration</option>
+                        <option value="3 months">3 months</option>
+                        <option value="6 months">6 months</option>
+                        <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
+                      </select>
+                    ) : (
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          disabled={isProfileSaving}
+                          className={`form-input ${profileEditErrors.partTimeDuration ? 'invalid' : ''}`}
+                          style={{ paddingRight: '45px', marginBottom: '0px', width: '100%' }}
+                          placeholder="e.g. 9 months"
+                          value={profileEditData.partTimeDuration}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setProfileEditData(prev => ({ ...prev, partTimeDuration: val }));
+                            if (!val || val.trim().length === 0) {
+                              setProfileEditErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
+                            } else {
+                              setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditCustomDuration(false);
+                            setProfileEditData(prev => ({ ...prev, partTimeDuration: '' }));
+                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            color: 'var(--teal)',
+                            fontWeight: 'bold',
+                            padding: '4px'
+                          }}
+                        >
+                          List
+                        </button>
+                      </div>
+                    )}
+                    {profileEditErrors.partTimeDuration && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.partTimeDuration}</span>}
+                  </div>
+                ) : (
+                  profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time' ? (
+                    <div>
+                      <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Conversion Date <span style={{ color: '#e11d48' }}>*</span></label>
+                      <input
+                        type="date"
+                        disabled={isProfileSaving}
+                        className={`form-input ${profileEditErrors.ptToFtConversionDate ? 'invalid' : ''}`}
+                        value={profileEditData.ptToFtConversionDate || ''}
+                        onChange={e => {
+                          setProfileEditData({ ...profileEditData, ptToFtConversionDate: e.target.value });
+                          setProfileEditErrors({ ...profileEditErrors, ptToFtConversionDate: '' });
+                        }}
+                      />
+                      {profileEditErrors.ptToFtConversionDate && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.ptToFtConversionDate}</span>}
+                    </div>
+                  ) : (
+                    <div />
+                  )
+                )}
+                {((profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time') ||
+                  (profileEditData.empType === 'Part time' && viewProfileEmp.empType === 'Part time' && profileEditData.partTimeDuration !== viewProfileEmp.partTimeDuration)) && (
+                  <div style={{ gridColumn: 'span 2', marginTop: '10px' }}>
+                    <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Reason / Comments</label>
+                    <textarea
+                      className="form-input"
+                      style={{ resize: 'vertical', minHeight: '60px', width: '100%', borderRadius: '6px', fontSize: '12.5px', padding: '8px' }}
+                      placeholder="Enter comments or reason for this status change..."
+                      value={profileEditData.reason || ''}
+                      disabled={isProfileSaving}
+                      onChange={e => setProfileEditData({ ...profileEditData, reason: e.target.value })}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons (Extend Duration, Convert to Full-Time) */}
+            {!isEditingProfile && viewProfileEmp.empType === 'Part time' && (
+              <div style={{ flexShrink: 0, marginTop: '16px', display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-md"
+                  onClick={() => handleExtendPartTimeClick(viewProfileEmp)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    backgroundColor: '#0f172a',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Extend Duration
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-teal btn-md"
+                  onClick={() => handleConvertToFullTimeClick(viewProfileEmp)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Convert to Full-Time
+                </button>
+              </div>
+            )}
+
+            {/* Bottom Row Buttons (Close, Edit, Save, Cancel) */}
+            <div style={{ flexShrink: 0, marginTop: '12px', display: 'flex', gap: '10px' }}>
+              {!isEditingProfile ? (
+                <>
+                  <button
+                    className="btn btn-ghost btn-md"
+                    onClick={() => { setViewProfileEmp(null); setIsEditingProfile(false); }}
+                    style={{ flex: 1, padding: '10px', borderRadius: '8px', fontSize: '13.5px' }}
+                  >
+                    Close View
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-md"
+                    onClick={handleStartEditProfile}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: '8px',
+                      fontSize: '13.5px',
+                      border: '1px solid var(--teal)',
+                      color: 'var(--teal)'
+                    }}
+                  >
+                    Edit Details
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="btn btn-ghost btn-md"
+                    onClick={() => { setIsEditingProfile(false); setProfileEditErrors({}); }}
+                    disabled={isProfileSaving}
+                    style={{ flex: 1, padding: '10px', borderRadius: '8px', fontSize: '13.5px' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-teal btn-md"
+                    onClick={handleSaveProfileEdit}
+                    disabled={isProfileSaving}
+                    style={{ flex: 1, padding: '10px', borderRadius: '8px', fontSize: '13.5px', opacity: isProfileSaving ? 0.6 : 1 }}
+                  >
+                    {isProfileSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

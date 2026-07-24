@@ -72,6 +72,18 @@ public class AuthController {
         return ResponseEntity.status(401).body(Map.of("message", "Invalid credentials"));
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser() {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equalsIgnoreCase(auth.getName())) {
+            return ResponseEntity.status(401).body(Map.of("message", "Not authenticated"));
+        }
+        String empId = auth.getName();
+        return userRepository.findByEmpId(empId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @Value("${otp.expiry.minutes:15}")
     private int otpExpiryMinutes;
 

@@ -258,9 +258,10 @@ input::-ms-clear {
   color: var(--text-dark);
   border: 1.5px solid var(--border);
   border-radius: 7px;
-  padding: 3px 8px;
+  padding: 3px 20px 3px 8px;
   cursor: pointer;
-  width: 110px;
+  width: auto;
+  min-width: 132px;
   appearance: auto;
   transition: border-color 0.2s;
 }
@@ -636,4 +637,21 @@ input::-ms-clear {
 /* Ensure confetti canvas is always on top of modals */
 canvas {
   z-index: 999999 !important;
+}
+
+/* Before Joining Date Styles */
+.table-wrap tr.row-before-joining td {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  opacity: 0.7 !important;
+  cursor: not-allowed !important;
+}
+.table-wrap tr.row-before-joining select.day-type-select,
+.table-wrap tr.row-before-joining .type-select-inline,
+.table-wrap tr.row-before-joining input {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  pointer-events: none !important;
+  cursor: not-allowed !important;
 }
