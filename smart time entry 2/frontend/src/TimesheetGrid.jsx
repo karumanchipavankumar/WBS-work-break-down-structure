@@ -1024,7 +1024,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
       // Guard: prevent writing to lunch fields for types where lunch is disabled
       const currentType = newRow.type;
+      const isPartTimeEmp = getEmpTypeForDate(employee, dateStr) === 'Part time';
       const lunchDisabledTypes = ['Part-Time', 'W-Day (1st Half)', 'W-Day (2nd Half)'];
+      if (isPartTimeEmp && currentType === 'Holiday') {
+        lunchDisabledTypes.push('Holiday');
+      }
       if (['lunchOut', 'lunchIn'].includes(field) && lunchDisabledTypes.includes(currentType)) {
         newRow[field] = '';
       }
@@ -1115,12 +1119,100 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return errors;
     }
 
+    const isPartTimeEmp = getEmpTypeForDate(employee, row.date) === 'Part time';
+    if (isPartTimeEmp) {
+      // "truly empty" = null/undefined (untouched field — HH:MM placeholder shown)
+      const isAmInBlank  = !row.amIn;
+      const isAmOutBlank = !row.amOut;
+      const isPmInBlank  = !row.pmIn;
+      const isPmOutBlank = !row.pmOut;
+
+      // "empty or zero" = null/undefined OR explicitly "00:00"
+      const isAmInEmpty  = !row.amIn  || row.amIn  === '00:00';
+      const isAmOutEmpty = !row.amOut || row.amOut === '00:00';
+      const isPmInEmpty  = !row.pmIn  || row.pmIn  === '00:00';
+      const isPmOutEmpty = !row.pmOut || row.pmOut === '00:00';
+
+      // Truly untouched row — all four fields are null/undefined, nothing typed yet
+      const isAllUntouched = isAmInBlank && isAmOutBlank && isPmInBlank && isPmOutBlank;
+
+      // All fields are explicitly zeroed (each one is "00:00"), nothing useful entered
+      const isAllExplicitlyZero =
+        row.amIn  === '00:00' && row.amOut === '00:00' &&
+        row.pmIn  === '00:00' && row.pmOut === '00:00';
+
+      const isAllEmptyOrZero = isAmInEmpty && isAmOutEmpty && isPmInEmpty && isPmOutEmpty;
+
+      const pmIn = row.pmIn ? parseTime(row.pmIn) : null;
+      const pmOut = row.pmOut ? parseTime(row.pmOut) : null;
+      if (pmIn !== null && pmIn < 720 && row.pmIn !== '00:00') {
+        errors.push("PM In must be at or after 12:00");
+      }
+      if (pmOut !== null && pmOut < 720 && row.pmOut !== '00:00') {
+        errors.push("PM Out must be at or after 12:00");
+      }
+
+      if (isWeekendOrHoliday && isAllEmptyOrZero) {
+        return errors;
+      }
+
+      // Silently skip completely untouched rows — do NOT show any error
+      if (isAllUntouched) {
+        return errors;
+      }
+
+      // Only show the "please enter working hours" warning when the employee has
+      // explicitly filled every field with 00:00 (not just left them blank)
+      if (isAllExplicitlyZero) {
+        errors.push("Please enter working hours in either the Morning or Afternoon session before submitting the timesheet.");
+        return errors;
+      }
+
+      const hasAmSection = !isAmInEmpty && !isAmOutEmpty;
+      const hasPmSection = !isPmInEmpty && !isPmOutEmpty;
+
+      if ((!isAmInEmpty && isAmOutEmpty) || (isAmInEmpty && !isAmOutEmpty)) {
+        errors.push("Both AM In and AM Out must be entered, or both left blank/00:00");
+      }
+      if ((!isPmInEmpty && isPmOutEmpty) || (isPmInEmpty && !isPmOutEmpty)) {
+        errors.push("Both PM In and PM Out must be entered, or both left blank/00:00");
+      }
+
+      if (!hasAmSection && !hasPmSection) {
+        errors.push("Please enter working hours in either the Morning or Afternoon session before submitting the timesheet.");
+      }
+
+      const amInVal = row.amIn ? parseTime(row.amIn) : null;
+      const amOutVal = row.amOut ? parseTime(row.amOut) : null;
+      const pmInVal = row.pmIn ? parseTime(row.pmIn) : null;
+      const pmOutVal = row.pmOut ? parseTime(row.pmOut) : null;
+
+      if (hasAmSection && amInVal !== null && amOutVal !== null && amOutVal <= amInVal) {
+        errors.push("AM Out must be later than AM In");
+      }
+      if (hasPmSection && pmInVal !== null && pmOutVal !== null && pmOutVal <= pmInVal) {
+        errors.push("PM Out must be later than PM In");
+      }
+      if (hasAmSection && hasPmSection && amOutVal !== null && pmInVal !== null && pmInVal < amOutVal) {
+        errors.push("PM In must be at or after AM Out");
+      }
+
+      return errors;
+    }
+
     const amIn = row.amIn ? parseTime(row.amIn) : null;
     const amOut = row.amOut ? parseTime(row.amOut) : null;
     const lunchOut = row.lunchOut ? parseTime(row.lunchOut) : null;
     const lunchIn = row.lunchIn ? parseTime(row.lunchIn) : null;
     const pmIn = row.pmIn ? parseTime(row.pmIn) : null;
     const pmOut = row.pmOut ? parseTime(row.pmOut) : null;
+
+    if (pmIn !== null && pmIn < 720) {
+      errors.push("PM In must be at or after 12:00");
+    }
+    if (pmOut !== null && pmOut < 720) {
+      errors.push("PM Out must be at or after 12:00");
+    }
 
     if (isWeekendOrHoliday) {
       if ((amIn !== null && amOut === null) || (amIn === null && amOut !== null)) {
@@ -1129,8 +1221,26 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       if ((pmIn !== null && pmOut === null) || (pmIn === null && pmOut !== null)) {
         errors.push("Both PM In and PM Out must be entered, or both left blank");
       }
-      if ((lunchOut !== null && lunchIn === null) || (lunchOut === null && lunchIn !== null)) {
-        errors.push("Both Lunch In and Lunch Out must be entered, or both left blank");
+      const isPartTimeEmp = getEmpTypeForDate(employee, row.date) === 'Part time';
+      if (!isPartTimeEmp) {
+        if ((lunchOut !== null && lunchIn === null) || (lunchOut === null && lunchIn !== null)) {
+          errors.push("Both Lunch In and Lunch Out must be entered, or both left blank");
+        }
+        if (lunchOut !== null && lunchIn !== null && lunchIn <= lunchOut) {
+          errors.push("Lunch Out must be later than Lunch In");
+        }
+        if (lunchOut !== null && amIn !== null && lunchOut < amIn) {
+          errors.push("Lunch In must be at or after AM In");
+        }
+        if (lunchIn !== null && pmOut !== null && pmOut < lunchIn) {
+          errors.push("PM Out must be at or after Lunch Out");
+        }
+        if (lunchOut !== null && amOut !== null && lunchOut < amOut) {
+          errors.push("Lunch In must be at or after AM Out");
+        }
+        if (lunchIn !== null && pmIn !== null && pmIn < lunchIn) {
+          errors.push("PM In must be at or after Lunch Out");
+        }
       }
       if (amIn !== null && amOut !== null && amOut <= amIn) {
         errors.push("AM Out must be later than AM In");
@@ -1138,26 +1248,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       if (pmIn !== null && pmOut !== null && pmOut <= pmIn) {
         errors.push("PM Out must be later than PM In");
       }
-      if (lunchOut !== null && lunchIn !== null && lunchIn <= lunchOut) {
-        errors.push("Lunch Out must be later than Lunch In");
-      }
       if (amIn !== null && pmOut !== null && pmOut <= amIn) {
         errors.push("PM Out must be later than AM In");
       }
       if (amOut !== null && pmIn !== null && pmIn < amOut) {
         errors.push("PM In must be at or after AM Out");
-      }
-      if (lunchOut !== null && amIn !== null && lunchOut < amIn) {
-        errors.push("Lunch In must be at or after AM In");
-      }
-      if (lunchIn !== null && pmOut !== null && pmOut < lunchIn) {
-        errors.push("PM Out must be at or after Lunch Out");
-      }
-      if (lunchOut !== null && amOut !== null && lunchOut < amOut) {
-        errors.push("Lunch In must be at or after AM Out");
-      }
-      if (lunchIn !== null && pmIn !== null && pmIn < lunchIn) {
-        errors.push("PM In must be at or after Lunch Out");
       }
     } else if (isFirstHalf) {
       // W-Day (1st Half): only AM fields are used
@@ -1221,11 +1316,24 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
     const isWeekendOrHoliday = isWknd || type === 'Holiday';
 
-    if (type === 'Holiday' && !row.amIn && !row.amOut && !row.lunchOut && !row.lunchIn && !row.pmIn && !row.pmOut) {
+    const isPartTimeEmp = getEmpTypeForDate(employee, row.date) === 'Part time';
+    const isHolidayEmptyOrZero = type === 'Holiday' &&
+      (!row.amIn || row.amIn === '00:00') &&
+      (!row.amOut || row.amOut === '00:00') &&
+      (!row.pmIn || row.pmIn === '00:00') &&
+      (!row.pmOut || row.pmOut === '00:00');
+
+    if (isHolidayEmptyOrZero) {
       return { reg: '00:00', ot: '--', tot: '00:00', rawMins: 0, regMins: 0, error: false, errors: [] };
     }
 
-    if (isWeekendOrHoliday) {
+    if (isPartTimeEmp) {
+      const hasAm = row.amIn && row.amOut && row.amIn !== '00:00' && row.amOut !== '00:00';
+      const hasPm = row.pmIn && row.pmOut && row.pmIn !== '00:00' && row.pmOut !== '00:00';
+      if (!hasAm && !hasPm) {
+        return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
+      }
+    } else if (isWeekendOrHoliday) {
       const hasAm = row.amIn && row.amOut;
       const hasPm = row.pmIn && row.pmOut;
       if (!hasAm && !hasPm) {
@@ -1258,7 +1366,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
     let totalMins = 0;
 
-    if (isWeekendOrHoliday) {
+    if (isPartTimeEmp) {
+      const hasAm = row.amIn && row.amOut && row.amIn !== '00:00' && row.amOut !== '00:00';
+      const hasPm = row.pmIn && row.pmOut && row.pmIn !== '00:00' && row.pmOut !== '00:00';
+      let amDiff = 0, pmDiff = 0;
+      if (hasAm && amOut > amIn) amDiff = amOut - amIn;
+      if (hasPm && pmOut > pmIn) pmDiff = pmOut - pmIn;
+      totalMins = amDiff + pmDiff;
+    } else if (isWeekendOrHoliday) {
       const hasAm = row.amIn && row.amOut;
       const hasPm = row.pmIn && row.pmOut;
       let amDiff = 0, pmDiff = 0;
@@ -1286,12 +1401,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
     if (totalMins > 1440) return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: true, errors: ['Duration exceeds 24h'] };
 
+    // isPartTimeEmp and empTypeForDate are already defined at the start of calculateHours
+
     let regMins = 0;
     let otMins = 0;
 
-    if (type === 'Part-Time') {
+    if (isPartTimeEmp) {
       // Part-Time employees have no OT concept.
-      // All hours (weekday or weekend) are regular and count toward the 28-hour weekly cap.
+      // All hours (weekday, weekend, or holiday) are regular and count toward the 28-hour weekly cap.
       regMins = totalMins;
       otMins = 0;
     } else if (isWeekendOrHoliday) {
@@ -1305,7 +1422,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const fmt = (m) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
     
     return {
-      reg: (type === 'Part-Time')
+      reg: isPartTimeEmp
         ? (totalMins > 0 ? fmt(regMins) : '--')
         : (isWeekendOrHoliday ? '00:00' : (totalMins > 0 ? fmt(regMins) : '--')),
       ot: otMins > 0 ? fmt(otMins) : '--',
@@ -1444,9 +1561,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       }
     }
 
-    // ── 28-hour weekly cap for Part-Time employees ──────────────────────────
-    if (!isAdmin && getEmpTypeForDate(employee, dateStr) === 'Part time') {
+    // ── 28-hour weekly cap for Part-Time employees (submitted entries only) ─
+    // The weekly limit is only enforced at submission time.
+    // Draft (saved but not submitted) entries do NOT count toward the 28-hour cap.
+    if (isSubmit && !isAdmin && getEmpTypeForDate(employee, dateStr) === 'Part time') {
       const PT_WEEKLY_LIMIT_MINS = 28 * 60; // 1680 minutes
+      // Statuses that are considered "submitted" and count toward the weekly total
+      const SUBMITTED_STATUSES = ['Pending', 'Approved', 'Reapproval Pending'];
 
       // Determine Monday of the week containing dateStr
       const targetDate = parseISO(dateStr);
@@ -1455,25 +1576,29 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       const weekMonday = addDays(startOfDay(targetDate), -daysFromMonday);
 
-      let weeklyMins = 0;
+      // Sum hours from OTHER days that are already SUBMITTED (not Draft).
+      // We intentionally skip editedRows and use only the server-persisted entries
+      // so that locally-edited drafts don't influence the weekly total.
+      let submittedOtherDaysMins = 0;
       for (let i = 0; i < 7; i++) {
         const d = addDays(weekMonday, i);
         const dStr = format(d, 'yyyy-MM-dd');
-        // For the date being saved, use the current row (may not be persisted yet)
-        const r = dStr === dateStr
-          ? row
-          : (editedRows[dStr] || entries[dStr]);
-        if (r) {
-          const h = calculateHours(r);
+        if (dStr === dateStr) continue; // skip the day currently being submitted
+        const persistedEntry = entries[dStr]; // only look at server-persisted records
+        if (persistedEntry && SUBMITTED_STATUSES.includes(persistedEntry.status)) {
+          const h = calculateHours(persistedEntry);
           if (!h.error && h.rawMins > 0) {
-            weeklyMins += h.rawMins;
+            submittedOtherDaysMins += h.rawMins;
           }
         }
       }
 
-      if (weeklyMins > PT_WEEKLY_LIMIT_MINS) {
-        const otherDaysMins = weeklyMins - calculateHours(row).rawMins;
-        const remainingMinsForWeek = Math.max(0, PT_WEEKLY_LIMIT_MINS - otherDaysMins);
+      // Hours for the day currently being submitted (not yet persisted)
+      const currentDayMins = calculateHours(row).rawMins || 0;
+      const totalIfSubmitted = submittedOtherDaysMins + currentDayMins;
+
+      if (totalIfSubmitted > PT_WEEKLY_LIMIT_MINS) {
+        const remainingMinsForWeek = Math.max(0, PT_WEEKLY_LIMIT_MINS - submittedOtherDaysMins);
         const remainingHrs = Math.floor(remainingMinsForWeek / 60);
         const remainingMin = remainingMinsForWeek % 60;
         const remainingStr = remainingMin > 0 ? `${remainingHrs}h ${remainingMin}m` : `${remainingHrs}h`;
@@ -1482,6 +1607,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '2px', textAlign: 'left' }}>
             <div style={{ fontSize: '14px', color: '#475569', lineHeight: '1.5' }}>
               Part-Time employees are limited to a maximum of <strong>28 hours</strong> per week.
+              The weekly limit is calculated based on your <strong>submitted</strong> entries only.
             </div>
             <div style={{
               background: '#fef3c7',
@@ -1504,7 +1630,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               }}>{remainingStr}</span>
             </div>
             <div style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.4' }}>
-              Please adjust your timings to fit within the remaining limit.
+              Please adjust your timings to fit within the remaining limit before submitting.
             </div>
           </div>,
           { title: 'Weekly Limit Exceeded', type: 'warn' }
@@ -1595,7 +1721,11 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       // Strip fields that are not applicable for the work type,
       // preventing stale values from a previous type being persisted
       const payloadType = p.type;
-      if (payloadType === 'Part-Time' || payloadType === 'W-Day (1st Half)' || payloadType === 'W-Day (2nd Half)') {
+      const isPartTimeEmp = getEmpTypeForDate(employee, p.date) === 'Part time';
+      if (payloadType === 'Part-Time' || (isPartTimeEmp && payloadType === 'Holiday')) {
+        p.lunchOut = '00:00';
+        p.lunchIn = '00:00';
+      } else if (payloadType === 'W-Day (1st Half)' || payloadType === 'W-Day (2nd Half)') {
         p.lunchOut = '';
         p.lunchIn = '';
       }
@@ -2272,7 +2402,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
   return (
     <div className="main-content" id="empDash">
-      {employee && employee.empType === 'Part time' && (
+      {employee && employee.empType === 'Part time' && !isAdmin && (
         <div style={{
           display: 'flex',
           alignItems: 'flex-start',
@@ -2771,9 +2901,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   const val = row[field] || '';
 
                   // Determine if this specific field should be disabled based on work type
+                  const isPartTimeEmp = getEmpTypeForDate(employee, dateStr) === 'Part time';
                   const isFirstHalf = row.type === 'W-Day (1st Half)';
                   const isSecondHalf = row.type === 'W-Day (2nd Half)';
-                  const isPartTimeType = row.type === 'Part-Time';
+                  const isPartTimeType = row.type === 'Part-Time' || (isPartTimeEmp && row.type === 'Holiday');
 
                   let fieldDisabled = isReadonly || isLockedType;
                   let fieldValue = val;

@@ -52,6 +52,12 @@ public class User {
     @Column(name = "part_time_duration")
     private String partTimeDuration;
 
+    @Column(name = "duration_value")
+    private Integer durationValue;
+
+    @Column(name = "duration_unit")
+    private String durationUnit;
+
     @Column(name = "part_time_start_date")
     private String partTimeStartDate;
 

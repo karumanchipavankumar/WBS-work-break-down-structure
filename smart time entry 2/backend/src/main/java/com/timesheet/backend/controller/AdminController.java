@@ -51,6 +51,27 @@ public class AdminController {
         return sb.toString().trim();
     }
 
+    private String calculateEndDate(String startDateStr, Integer durationValue, String durationUnit) {
+        if (startDateStr == null || durationValue == null || durationUnit == null) {
+            return null;
+        }
+        try {
+            java.time.LocalDate start = java.time.LocalDate.parse(startDateStr);
+            switch (durationUnit.trim().toUpperCase()) {
+                case "DAYS":
+                    return start.plusDays(durationValue).toString();
+                case "YEARS":
+                    return start.plusYears(durationValue).toString();
+                case "MONTHS":
+                default:
+                    return start.plusMonths(durationValue).toString();
+          }
+        } catch (Exception e) {
+            System.err.println("Failed to calculate end date: " + e.getMessage());
+            return null;
+        }
+    }
+
     private String calculateEndDate(String startDateStr, String durationStr) {
         try {
             java.time.LocalDate start = java.time.LocalDate.parse(startDateStr);
@@ -306,6 +327,8 @@ public class AdminController {
         String contactNumber = employee.getContactNumber() != null ? employee.getContactNumber().trim() : null;
         String empType = employee.getEmpType() != null ? employee.getEmpType().trim() : null;
         String partTimeDuration = employee.getPartTimeDuration() != null ? employee.getPartTimeDuration().trim() : null;
+        Integer durationValue = employee.getDurationValue();
+        String durationUnit = employee.getDurationUnit() != null ? employee.getDurationUnit().trim().toUpperCase() : null;
 
         // Backend Validations
         if (name == null || name.length() < 3 || name.length() > 32 || !name.matches("^[A-Za-z]+(?: [A-Za-z]+)*$")) {
@@ -316,10 +339,14 @@ public class AdminController {
             notifyEmpCreationFailure(name, empId, "Please enter a valid Employee ID.");
             return ResponseEntity.badRequest().body("Please enter a valid Employee ID.");
         }
-        java.util.List<String> allowedDepts = java.util.Arrays.asList("HR", "IT", "Marketing", "Operations", "Sales", "other", "Administration");
-        if (dept == null || !allowedDepts.contains(dept)) {
-            notifyEmpCreationFailure(name, empId, "Please select a department.");
-            return ResponseEntity.badRequest().body("Please select a department.");
+        if (dept == null || dept.trim().isEmpty()) {
+            notifyEmpCreationFailure(name, empId, "Please select or enter a department.");
+            return ResponseEntity.badRequest().body("Please select or enter a department.");
+        }
+        dept = dept.trim();
+        if (dept.length() > 100) {
+            notifyEmpCreationFailure(name, empId, "Department name cannot exceed 100 characters.");
+            return ResponseEntity.badRequest().body("Department name cannot exceed 100 characters.");
         }
         if (manager == null || manager.length() < 3 || manager.length() > 32 || !manager.matches("^[A-Za-z]+(?: [A-Za-z]+)*$")) {
             notifyEmpCreationFailure(name, empId, "Please enter a valid manager name.");
@@ -347,11 +374,28 @@ public class AdminController {
             return ResponseEntity.badRequest().body("Please select a valid employee type.");
         }
         if ("Part time".equalsIgnoreCase(empType)) {
-            if (partTimeDuration == null || partTimeDuration.isEmpty()) {
-                notifyEmpCreationFailure(name, empId, "Please specify a duration for part-time employee.");
-                return ResponseEntity.badRequest().body("Please specify a duration for part-time employee.");
+            if (durationValue == null) {
+                notifyEmpCreationFailure(name, empId, "Duration value is mandatory.");
+                return ResponseEntity.badRequest().body("Duration value is mandatory.");
             }
+            if (durationValue <= 0) {
+                notifyEmpCreationFailure(name, empId, "Duration value must be a positive number.");
+                return ResponseEntity.badRequest().body("Duration value must be a positive number.");
+            }
+            if (durationUnit == null || durationUnit.trim().isEmpty()) {
+                notifyEmpCreationFailure(name, empId, "Duration unit is mandatory.");
+                return ResponseEntity.badRequest().body("Duration unit is mandatory.");
+            }
+            String unitUpper = durationUnit.trim().toUpperCase();
+            if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
+                notifyEmpCreationFailure(name, empId, "Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+                return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+            }
+            String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
+            partTimeDuration = durationValue + " " + unitLabel;
         } else {
+            durationValue = null;
+            durationUnit = null;
             partTimeDuration = null;
         }
 
@@ -530,10 +574,12 @@ public class AdminController {
         employee.setCountry(countryCode);
         employee.setContactNumber(finalContactNumber);
         employee.setEmpType(empType);
+        employee.setDurationValue(durationValue);
+        employee.setDurationUnit(durationUnit);
         employee.setPartTimeDuration(partTimeDuration);
         if ("Part time".equalsIgnoreCase(empType)) {
             employee.setPartTimeStartDate(dateOfJoining);
-            employee.setPartTimeEndDate(calculateEndDate(dateOfJoining, partTimeDuration));
+            employee.setPartTimeEndDate(calculateEndDate(dateOfJoining, durationValue, durationUnit));
         } else {
             employee.setPartTimeStartDate(null);
             employee.setPartTimeEndDate(null);
@@ -794,22 +840,43 @@ public class AdminController {
             String contactNumber = employeeData.getContactNumber() != null ? employeeData.getContactNumber().trim() : null;
             String empType = employeeData.getEmpType() != null ? employeeData.getEmpType().trim() : null;
             String partTimeDuration = employeeData.getPartTimeDuration() != null ? employeeData.getPartTimeDuration().trim() : null;
+            Integer durationValue = employeeData.getDurationValue();
+            String durationUnit = employeeData.getDurationUnit() != null ? employeeData.getDurationUnit().trim().toUpperCase() : null;
 
             if (empType == null) {
                 empType = user.getEmpType() != null ? user.getEmpType() : "Full time";
             }
-            if ("Part time".equalsIgnoreCase(empType) && partTimeDuration == null) {
-                partTimeDuration = user.getPartTimeDuration();
+            if ("Part time".equalsIgnoreCase(empType)) {
+                if (durationValue == null) {
+                    durationValue = user.getDurationValue();
+                }
+                if (durationUnit == null) {
+                    durationUnit = user.getDurationUnit() != null ? user.getDurationUnit().trim().toUpperCase() : null;
+                }
             }
 
             if (!"Full time".equalsIgnoreCase(empType) && !"Part time".equalsIgnoreCase(empType)) {
                 return ResponseEntity.badRequest().body("Please select a valid employee type.");
             }
             if ("Part time".equalsIgnoreCase(empType)) {
-                if (partTimeDuration == null || partTimeDuration.isEmpty()) {
-                    return ResponseEntity.badRequest().body("Please specify a duration for part-time employee.");
+                if (durationValue == null) {
+                    return ResponseEntity.badRequest().body("Duration value is mandatory.");
                 }
+                if (durationValue <= 0) {
+                    return ResponseEntity.badRequest().body("Duration value must be a positive number.");
+                }
+                if (durationUnit == null || durationUnit.isEmpty()) {
+                    return ResponseEntity.badRequest().body("Duration unit is mandatory.");
+                }
+                String unitUpper = durationUnit.trim().toUpperCase();
+                if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
+                    return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+                }
+                String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
+                partTimeDuration = durationValue + " " + unitLabel;
             } else {
+                durationValue = null;
+                durationUnit = null;
                 partTimeDuration = null;
             }
 
@@ -850,9 +917,12 @@ public class AdminController {
             if (companyName == null || !companyName.matches("^[A-Za-z0-9 ()&@_-]{2,32}$")) {
                 return ResponseEntity.badRequest().body("Please enter a valid company name (only letters, numbers, spaces, and ()&@-_ allowed).");
             }
-            java.util.List<String> allowedDepts = java.util.Arrays.asList("HR", "IT", "Marketing", "Operations", "Sales", "other", "Administration");
-            if (dept == null || !allowedDepts.contains(dept)) {
-                return ResponseEntity.badRequest().body("Please select a department.");
+            if (dept == null || dept.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Please select or enter a department.");
+            }
+            dept = dept.trim();
+            if (dept.length() > 100) {
+                return ResponseEntity.badRequest().body("Department name cannot exceed 100 characters.");
             }
             if (manager == null || manager.length() < 3 || manager.length() > 32 || !manager.matches("^[A-Za-z]+(?: [A-Za-z]+)*$")) {
                 return ResponseEntity.badRequest().body("Please enter a valid manager name.");
@@ -1005,12 +1075,14 @@ public class AdminController {
             user.setCountry(countryCode);
             user.setContactNumber(finalContactNumber);
             user.setEmpType(empType);
+            user.setDurationValue(durationValue);
+            user.setDurationUnit(durationUnit);
             user.setPartTimeDuration(partTimeDuration);
             if ("Part time".equalsIgnoreCase(empType)) {
                 if (user.getPartTimeStartDate() == null) {
                     user.setPartTimeStartDate(dateOfJoining);
                 }
-                user.setPartTimeEndDate(calculateEndDate(user.getPartTimeStartDate(), partTimeDuration));
+                user.setPartTimeEndDate(calculateEndDate(user.getPartTimeStartDate(), durationValue, durationUnit));
                 user.setPtToFtConversionDate(null);
             } else {
                 if ("Part time".equalsIgnoreCase(user.getEmpType())) {
@@ -1167,17 +1239,37 @@ public class AdminController {
     }
 
     @PostMapping("/employees/{id}/extend-part-time")
-    public ResponseEntity<?> extendPartTimeDuration(@PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
+    public ResponseEntity<?> extendPartTimeDuration(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body) {
         return userRepository.findById(id).map(user -> {
             if (!"Part time".equalsIgnoreCase(user.getEmpType())) {
                 return ResponseEntity.badRequest().body("Employee is not a Part-Time employee.");
             }
-            String duration = body.get("duration");
-            if (duration == null || duration.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("Duration is required.");
+            
+            Object rawVal = body.get("durationValue");
+            Integer durationValue = null;
+            if (rawVal instanceof Number) {
+                durationValue = ((Number) rawVal).intValue();
+            } else if (rawVal instanceof String) {
+                try {
+                    durationValue = Integer.parseInt(((String) rawVal).trim());
+                } catch (NumberFormatException e) {
+                    return ResponseEntity.badRequest().body("Invalid duration value.");
+                }
             }
-            duration = duration.trim();
-            String reason = body.get("reason");
+            
+            String durationUnit = (String) body.get("durationUnit");
+            if (durationValue == null || durationValue <= 0) {
+                return ResponseEntity.badRequest().body("Duration value must be a positive integer.");
+            }
+            if (durationUnit == null || durationUnit.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Duration unit is required.");
+            }
+            durationUnit = durationUnit.trim().toUpperCase();
+            if (!"DAYS".equals(durationUnit) && !"MONTHS".equals(durationUnit) && !"YEARS".equals(durationUnit)) {
+                return ResponseEntity.badRequest().body("Invalid duration unit.");
+            }
+
+            String reason = (String) body.get("reason");
             if (reason == null || reason.trim().isEmpty()) {
                 reason = "-";
             } else {
@@ -1185,13 +1277,63 @@ public class AdminController {
             }
 
             String previousEndDate = user.getPartTimeEndDate();
-            String baseDate = previousEndDate;
-            if (baseDate == null || baseDate.isEmpty()) {
-                baseDate = java.time.LocalDate.now().toString();
+            String previousDuration = user.getPartTimeDuration();
+            
+            // If the user's start date is null, initialize it
+            String ptStartDate = user.getPartTimeStartDate();
+            if (ptStartDate == null || ptStartDate.isEmpty()) {
+                ptStartDate = user.getDateOfJoining();
             }
-            String newEndDate = calculateEndDate(baseDate, duration);
+            if (ptStartDate == null || ptStartDate.isEmpty()) {
+                ptStartDate = java.time.LocalDate.now().toString();
+            }
+            
+            // Calculate new end date
+            String newEndDate = calculateEndDate(ptStartDate, durationValue, durationUnit);
+            
+            // Formatted string representation for partTimeDuration (backwards compatibility)
+            String unitLabel = "DAYS".equals(durationUnit) ? "Days" : ("YEARS".equals(durationUnit) ? "Years" : "Months");
+            String partTimeDuration = durationValue + " " + unitLabel;
+
+            // Calculate "extension added" difference
+            Integer oldVal = user.getDurationValue();
+            String oldUnit = user.getDurationUnit() != null ? user.getDurationUnit().toUpperCase() : null;
+            if (oldVal == null && previousDuration != null) {
+                String digits = previousDuration.replaceAll("\\D", "");
+                oldVal = digits.isEmpty() ? 3 : Integer.parseInt(digits);
+                String lower = previousDuration.toLowerCase();
+                if (lower.contains("day")) oldUnit = "DAYS";
+                else if (lower.contains("year")) oldUnit = "YEARS";
+                else oldUnit = "MONTHS";
+            }
+            if (oldVal == null) oldVal = 3;
+            if (oldUnit == null) oldUnit = "MONTHS";
+
+            String extensionAdded = "";
+            if (oldUnit.equals(durationUnit)) {
+                int diff = durationValue - oldVal;
+                String diffSign = diff >= 0 ? "+" : "";
+                extensionAdded = diffSign + diff + " " + unitLabel;
+            } else {
+                java.time.LocalDate start = java.time.LocalDate.parse(ptStartDate);
+                java.time.LocalDate oldEnd = java.time.LocalDate.parse(previousEndDate != null ? previousEndDate : calculateEndDate(ptStartDate, oldVal, oldUnit));
+                java.time.LocalDate newEnd = java.time.LocalDate.parse(newEndDate);
+                long diffDays = java.time.temporal.ChronoUnit.DAYS.between(oldEnd, newEnd);
+                if ("DAYS".equals(durationUnit)) {
+                    extensionAdded = (diffDays >= 0 ? "+" : "") + diffDays + " Days";
+                } else if ("YEARS".equals(durationUnit)) {
+                    long diffYears = Math.round((double) diffDays / 365.0);
+                    extensionAdded = (diffYears >= 0 ? "+" : "") + diffYears + " Years";
+                } else {
+                    long diffMonths = Math.round((double) diffDays / 30.0);
+                    extensionAdded = (diffMonths >= 0 ? "+" : "") + diffMonths + " Months";
+                }
+            }
+
             user.setPartTimeEndDate(newEndDate);
-            user.setPartTimeDuration(duration);
+            user.setPartTimeDuration(partTimeDuration);
+            user.setDurationValue(durationValue);
+            user.setDurationUnit(durationUnit);
             User saved = userRepository.save(user);
 
             // Audit log details
@@ -1208,8 +1350,8 @@ public class AdminController {
             log.setAffectedName(user.getName());
             log.setPerformedByEmpId(adminEmpId);
             log.setPerformedByName(adminName);
-            log.setPreviousValues(String.format("EndDate: %s, Duration: %s", previousEndDate, user.getPartTimeDuration()));
-            log.setNewValues(String.format("EndDate: %s, Duration: %s", newEndDate, duration));
+            log.setPreviousValues(String.format("Duration: %s, EndDate: %s", previousDuration, previousEndDate));
+            log.setNewValues(String.format("Duration: %s, EndDate: %s, Extension Added: %s", partTimeDuration, newEndDate, extensionAdded));
             log.setReason(reason);
             log.setComments(reason);
             auditLogRepository.save(log);

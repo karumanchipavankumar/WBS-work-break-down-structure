@@ -287,6 +287,10 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [statusFilter, setStatusFilter] = useState('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newEmp, setNewEmp] = useState({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '', empType: '', partTimeDuration: '' });
+  const [deptDropdown, setDeptDropdown] = useState('');
+  const [customDept, setCustomDept] = useState('');
+  const [durationValue, setDurationValue] = useState('');
+  const [durationUnit, setDurationUnit] = useState('MONTHS');
   const [domains, setDomains] = useState(['@oryfolks.com', '@idealfolks.com', '@gmail.com']);
   const [formErrors, setFormErrors] = useState({});
   const [isCustomDomain, setIsCustomDomain] = useState(false);
@@ -331,6 +335,8 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
   const [extendingError, setExtendingError] = useState('');
   const [isExtendingSubmit, setIsExtendingSubmit] = useState(false);
   const [extendingReason, setExtendingReason] = useState('');
+  const [extendingValue, setExtendingValue] = useState('');
+  const [extendingUnit, setExtendingUnit] = useState('MONTHS');
 
   // Conversion Modal State
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
@@ -553,28 +559,58 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     }
   };
 
+  const getEmployeeDurationInfo = (emp) => {
+    if (!emp) return { value: 3, unit: 'MONTHS' };
+    let value = emp.durationValue;
+    let unit = emp.durationUnit ? emp.durationUnit.toUpperCase() : null;
+    if (!value && emp.partTimeDuration) {
+      const digits = emp.partTimeDuration.replace(/\D/g, '');
+      value = digits ? parseInt(digits, 10) : 3;
+      const lower = emp.partTimeDuration.toLowerCase();
+      if (lower.includes('day')) unit = 'DAYS';
+      else if (lower.includes('year')) unit = 'YEARS';
+      else unit = 'MONTHS';
+    }
+    return { value: value || 3, unit: unit || 'MONTHS' };
+  };
+
   const handleExtendPartTimeClick = (emp) => {
     setExtendingEmp(emp);
-    setExtendingDuration('');
+    const curr = getEmployeeDurationInfo(emp);
+    setExtendingValue(curr.value.toString());
+    setExtendingUnit(curr.unit);
     setExtendingReason('');
-    setIsExtendingCustom(false);
     setExtendingError('');
     setIsExtendingSubmit(false);
   };
 
   const handleExtendPartTimeSubmit = async () => {
-    if (!extendingEmp || !extendingDuration.trim()) {
-      setExtendingError('Please select or enter a duration.');
+    if (!extendingEmp) return;
+    const valNum = Number(extendingValue);
+    if (!extendingValue || extendingValue.trim().length === 0) {
+      setExtendingError('Duration value is required.');
       return;
     }
+    if (isNaN(valNum) || valNum <= 0 || !Number.isInteger(valNum)) {
+      setExtendingError('Only positive whole numbers are allowed.');
+      return;
+    }
+
+    const curr = getEmployeeDurationInfo(extendingEmp);
+    if (curr.value === valNum && curr.unit === extendingUnit) {
+      setExtendingError('No change detected. Please specify a different duration or unit.');
+      return;
+    }
+
     setIsExtendingSubmit(true);
     setExtendingError('');
     try {
       const res = await api.post(`/admin/employees/${extendingEmp.id}/extend-part-time`, {
-        duration: extendingDuration.trim(),
+        durationValue: valNum,
+        durationUnit: extendingUnit,
         reason: extendingReason
       });
-      showAlert('Part-Time duration successfully extended!');
+      showAlert('Part-Time duration successfully updated!');
       // Update local state views
       if (viewProfileEmp && viewProfileEmp.id === extendingEmp.id) {
         setViewProfileEmp(res.data);
@@ -582,7 +618,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       setExtendingEmp(null);
       loadEmployees();
     } catch (e) {
-      const errorMsg = e.response?.data || 'Failed to extend Part-Time duration';
+      const errorMsg = e.response?.data || 'Failed to update Part-Time duration';
       setExtendingError(errorMsg);
     } finally {
       setIsExtendingSubmit(false);
@@ -805,8 +841,16 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     }
 
     // Department: Must select a department.
-    if (!newEmp.dept || newEmp.dept === 'Select Department') {
-      errors.dept = 'Please select a department.';
+    if (deptDropdown === 'other') {
+      if (!customDept || !customDept.trim()) {
+        errors.dept = 'Please enter a department name.';
+      } else if (customDept.trim().length > 100) {
+        errors.dept = 'Department cannot exceed 100 characters.';
+      }
+    } else {
+      if (!deptDropdown) {
+        errors.dept = 'Please select a department.';
+      }
     }
 
     // Manager: Only alphabets and spaces between characters. Min 3 chars, Max 32 chars.
@@ -880,8 +924,11 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
 
     // Part Time Duration (only if employee type is Part time)
     if (newEmp.empType === 'Part time') {
-      if (!newEmp.partTimeDuration || newEmp.partTimeDuration.trim().length === 0) {
-        errors.partTimeDuration = 'Please specify a duration.';
+      const num = Number(durationValue);
+      if (!durationValue || durationValue.trim().length === 0) {
+        errors.partTimeDuration = 'Duration number is mandatory.';
+      } else if (isNaN(num) || num <= 0 || !Number.isInteger(num)) {
+        errors.partTimeDuration = 'Only positive whole numbers are allowed.';
       }
     }
 
@@ -975,9 +1022,24 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       delete payload.emailUsername;
       delete payload.emailDomain;
 
+      if (newEmp.empType === 'Part time') {
+        payload.durationValue = parseInt(durationValue.trim(), 10);
+        payload.durationUnit = durationUnit;
+        const unitLabel = durationUnit === 'DAYS' ? 'Days' : durationUnit === 'YEARS' ? 'Years' : 'Months';
+        payload.partTimeDuration = durationValue.trim() + " " + unitLabel;
+      } else {
+        payload.durationValue = null;
+        payload.durationUnit = null;
+        payload.partTimeDuration = null;
+      }
+
       await api.post('/admin/employees', payload);
 
       setNewEmp({ name: '', empId: '', dept: '', manager: '', emailUsername: '', emailDomain: '@oryfolks.com', projectName: '', companyName: '', dateOfJoining: getTodayDateString(), country: '', contactNumber: '', empType: '', partTimeDuration: '' });
+      setDeptDropdown('');
+      setCustomDept('');
+      setDurationValue('');
+      setDurationUnit('MONTHS');
       setIsCustomDuration(false);
       setFormErrors({});
       setEmailDuplicateError('');
@@ -1574,11 +1636,23 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     name="dept"
                     disabled={isSubmitting}
                     className={`form-input ${formErrors.dept ? 'invalid' : ''}`}
-                    value={newEmp.dept}
+                    value={deptDropdown}
                     onChange={e => {
                       if (!checkPrecedingFields('dept')) return;
-                      setNewEmp({ ...newEmp, dept: e.target.value });
-                      setFormErrors({ ...formErrors, dept: '' });
+                      const val = e.target.value;
+                      setDeptDropdown(val);
+                      if (val === 'other') {
+                        setNewEmp(prev => ({ ...prev, dept: customDept.trim() }));
+                        if (!customDept.trim()) {
+                          setFormErrors(prev => ({ ...prev, dept: 'Department is required.' }));
+                        } else {
+                          setFormErrors(prev => ({ ...prev, dept: '' }));
+                        }
+                      } else {
+                        setCustomDept('');
+                        setNewEmp(prev => ({ ...prev, dept: val }));
+                        setFormErrors(prev => ({ ...prev, dept: val ? '' : 'Please select a department.' }));
+                      }
                     }}
                     onFocus={e => {
                       if (!checkPrecedingFields('dept')) {
@@ -1592,9 +1666,38 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     <option value="Marketing">Marketing</option>
                     <option value="Operations">Operations</option>
                     <option value="Sales">Sales</option>
-                    <option value="other">other</option>
+                    <option value="Administration">Administration</option>
+                    <option value="other">Other</option>
                   </select>
-                  {formErrors.dept && <span style={{ color: '#d32f2f', fontSize: '11px' }}>{formErrors.dept}</span>}
+                  {formErrors.dept && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{formErrors.dept}</span>}
+
+                  {deptDropdown === 'other' && (
+                    <div style={{ marginTop: '10px' }}>
+                      <label className="form-label" style={{ fontSize: '11px', color: '#64748b' }}>ENTER DEPARTMENT NAME <span style={{ color: '#e11d48' }}>*</span></label>
+                      <input
+                        type="text"
+                        id="customDept"
+                        name="customDept"
+                        maxLength={100}
+                        placeholder="e.g. Finance"
+                        disabled={isSubmitting}
+                        className={`form-input ${formErrors.dept ? 'invalid' : ''}`}
+                        value={customDept}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCustomDept(val);
+                          setNewEmp(prev => ({ ...prev, dept: val.trim() }));
+                          if (!val.trim()) {
+                            setFormErrors(prev => ({ ...prev, dept: 'Department is required.' }));
+                          } else if (val.trim().length > 100) {
+                            setFormErrors(prev => ({ ...prev, dept: 'Department cannot exceed 100 characters.' }));
+                          } else {
+                            setFormErrors(prev => ({ ...prev, dept: '' }));
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label className="form-label">MANAGER <span style={{ color: '#e11d48' }}>*</span></label>
@@ -2095,22 +2198,30 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 {newEmp.empType === 'Part time' ? (
                   <div className="form-group" style={{ flex: 1.2 }}>
                     <label className="form-label">PART TIME DURATION <span style={{ color: '#e11d48' }}>*</span></label>
-                    {!isCustomDuration ? (
-                      <select
-                        id="partTimeDuration"
-                        name="partTimeDuration"
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        id="durationValue"
+                        name="durationValue"
+                        placeholder="e.g. 6"
+                        min="1"
+                        step="1"
                         disabled={isSubmitting}
                         className={`form-input ${formErrors.partTimeDuration ? 'invalid' : ''}`}
-                        value={newEmp.partTimeDuration || ''}
+                        style={{ flex: 1, marginBottom: '0px' }}
+                        value={durationValue}
                         onChange={e => {
                           if (!checkPrecedingFields('partTimeDuration')) return;
                           const val = e.target.value;
-                          if (val === 'custom') {
-                            setIsCustomDuration(true);
-                            setNewEmp(prev => ({ ...prev, partTimeDuration: '' }));
-                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required' }));
+                          setDurationValue(val);
+                          
+                          // Validate inline
+                          const num = Number(val);
+                          if (!val || val.trim().length === 0) {
+                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
+                          } else if (isNaN(num) || num <= 0 || !Number.isInteger(num)) {
+                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Only positive whole numbers are allowed.' }));
                           } else {
-                            setNewEmp(prev => ({ ...prev, partTimeDuration: val }));
                             setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
                           }
                         }}
@@ -2119,64 +2230,30 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                             e.target.blur();
                           }
                         }}
+                      />
+                      <select
+                        id="durationUnit"
+                        name="durationUnit"
+                        disabled={isSubmitting}
+                        className="form-input"
+                        style={{ width: '120px', marginBottom: '0px' }}
+                        value={durationUnit}
+                        onChange={e => {
+                          if (!checkPrecedingFields('partTimeDuration')) return;
+                          setDurationUnit(e.target.value);
+                        }}
+                        onFocus={e => {
+                          if (!checkPrecedingFields('partTimeDuration')) {
+                            e.target.blur();
+                          }
+                        }}
                       >
-                        <option value="">Select Duration</option>
-                        <option value="3 months">3 months</option>
-                        <option value="6 months">6 months</option>
-                        <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
+                        <option value="DAYS">Days</option>
+                        <option value="MONTHS">Months</option>
+                        <option value="YEARS">Years</option>
                       </select>
-                    ) : (
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <input
-                          id="partTimeDuration"
-                          name="partTimeDuration"
-                          type="text"
-                          disabled={isSubmitting}
-                          className={`form-input ${formErrors.partTimeDuration ? 'invalid' : ''}`}
-                          style={{ paddingRight: '45px', marginBottom: '0px' }}
-                          placeholder="e.g. 9 months"
-                          value={newEmp.partTimeDuration || ''}
-                          onChange={e => {
-                            if (!checkPrecedingFields('partTimeDuration')) return;
-                            const val = e.target.value;
-                            setNewEmp(prev => ({ ...prev, partTimeDuration: val }));
-                            if (!val || val.trim().length === 0) {
-                              setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
-                            } else {
-                              setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
-                            }
-                          }}
-                          onFocus={e => {
-                            if (!checkPrecedingFields('partTimeDuration')) {
-                              e.target.blur();
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCustomDuration(false);
-                            setNewEmp(prev => ({ ...prev, partTimeDuration: '' }));
-                            setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
-                          }}
-                          title="Back to list"
-                          style={{
-                            position: 'absolute',
-                            right: '8px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            color: 'var(--teal)',
-                            fontWeight: 'bold',
-                            padding: '4px'
-                          }}
-                        >
-                          List
-                        </button>
-                      </div>
-                    )}
-                    {formErrors.partTimeDuration && <span style={{ color: '#d32f2f', fontSize: '11px' }}>{formErrors.partTimeDuration}</span>}
+                    </div>
+                    {formErrors.partTimeDuration && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{formErrors.partTimeDuration}</span>}
                   </div>
                 ) : (
                   <div className="form-group" style={{ flex: 1.2 }} />
@@ -2399,149 +2476,242 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
         </div>
       )}
 
-      {extendingEmp && (
-        <div className="modal-overlay open" style={{ zIndex: 1010, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}>
-          <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px' }}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Extend Part-Time Duration
-              </h3>
-              <button
-                className="modal-close"
-                type="button"
-                onClick={() => { if (!isExtendingSubmit) setExtendingEmp(null); }}
-                disabled={isExtendingSubmit}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
-              Please select or enter the new Part-Time duration for <strong>{extendingEmp.name}</strong> ({extendingEmp.empId}). This will update their Part-Time end date and reset notifications.
-            </div>
+      {extendingEmp && (() => {
+        const curr = getEmployeeDurationInfo(extendingEmp);
+        const newVal = Number(extendingValue);
+        const isValValid = extendingValue && !isNaN(newVal) && newVal > 0 && Number.isInteger(newVal);
+        
+        let diffDays = 0;
+        let diffValue = 0;
+        let unitLabel = '';
+        let formattedNewEndDate = '';
+        
+        if (isValValid) {
+          const startDateStr = extendingEmp.partTimeStartDate || extendingEmp.dateOfJoining || new Date().toISOString().split('T')[0];
+          const start = new Date(startDateStr);
+          
+          const addDuration = (date, val, unit) => {
+            const d = new Date(date);
+            if (unit === 'DAYS') {
+              d.setDate(d.getDate() + val);
+            } else if (unit === 'YEARS') {
+              d.setFullYear(d.getFullYear() + val);
+            } else {
+              d.setMonth(d.getMonth() + val);
+            }
+            return d;
+          };
+          
+          const currEnd = addDuration(start, curr.value, curr.unit);
+          const newEnd = addDuration(start, newVal, extendingUnit);
+          
+          const diffTime = newEnd - currEnd;
+          diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (extendingUnit === 'DAYS') {
+            diffValue = diffDays;
+            unitLabel = Math.abs(diffValue) === 1 ? 'Day' : 'Days';
+          } else if (extendingUnit === 'YEARS') {
+            diffValue = Math.round(diffDays / 365);
+            unitLabel = Math.abs(diffValue) === 1 ? 'Year' : 'Years';
+          } else {
+            diffValue = Math.round(diffDays / 30);
+            unitLabel = Math.abs(diffValue) === 1 ? 'Month' : 'Months';
+          }
+          
+          const options = { year: 'numeric', month: 'short', day: 'numeric' };
+          formattedNewEndDate = newEnd.toLocaleDateString('en-US', options);
+        }
+        
+        const isNoChange = curr.value === newVal && curr.unit === extendingUnit;
+        const isSaveDisabled = isExtendingSubmit || !isValValid || isNoChange;
 
-            <form onSubmit={e => { e.preventDefault(); handleExtendPartTimeSubmit(); }}>
-              {extendingError && (
-                <div style={{
-                  padding: '10px',
-                  marginBottom: '15px',
-                  borderRadius: '6px',
-                  backgroundColor: '#ffebee',
-                  color: '#c62828',
-                  fontSize: '12px',
-                  border: '1px solid #ef9a9a',
-                  fontWeight: '500'
-                }}>
-                  {extendingError}
-                </div>
-              )}
+        return (
+          <div className="modal-overlay open" style={{ zIndex: 1010, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}>
+            <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px' }}>
+              <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Extend Part-Time Duration
+                </h3>
+                <button
+                  className="modal-close"
+                  type="button"
+                  onClick={() => { if (!isExtendingSubmit) setExtendingEmp(null); }}
+                  disabled={isExtendingSubmit}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
+                Please select or enter the new Part-Time duration for <strong>{extendingEmp.name}</strong> ({extendingEmp.empId}). This will update their Part-Time end date and reset notifications.
+              </div>
 
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
-                  NEW DURATION <span style={{ color: '#e11d48' }}>*</span>
-                </label>
-                {!isExtendingCustom ? (
-                  <select
-                    className="form-input"
-                    value={extendingDuration}
-                    disabled={isExtendingSubmit}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === 'custom') {
-                        setIsExtendingCustom(true);
-                        setExtendingDuration('');
-                      } else {
-                        setExtendingDuration(val);
-                      }
-                    }}
-                  >
-                    <option value="">Select Duration...</option>
-                    <option value="3 months">3 months</option>
-                    <option value="6 months">6 months</option>
-                    <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
-                  </select>
-                ) : (
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      className="form-input"
-                      style={{ paddingRight: '45px', marginBottom: '0px', width: '100%' }}
-                      placeholder="e.g. 9 months"
-                      value={extendingDuration}
-                      disabled={isExtendingSubmit}
-                      onChange={e => setExtendingDuration(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsExtendingCustom(false);
-                        setExtendingDuration('');
-                      }}
-                      style={{
-                        position: 'absolute',
-                        right: '8px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        color: 'var(--teal)',
-                        fontWeight: 'bold',
-                        padding: '4px'
-                      }}
-                    >
-                      List
-                    </button>
+              <form onSubmit={e => { e.preventDefault(); handleExtendPartTimeSubmit(); }}>
+                {extendingError && (
+                  <div style={{
+                    padding: '10px',
+                    marginBottom: '15px',
+                    borderRadius: '6px',
+                    backgroundColor: '#ffebee',
+                    color: '#c62828',
+                    fontSize: '12px',
+                    border: '1px solid #ef9a9a',
+                    fontWeight: '500'
+                  }}>
+                    {extendingError}
                   </div>
                 )}
-              </div>
 
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
-                  REASON / COMMENTS
-                </label>
-                <textarea
-                  className="form-input"
-                  style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
-                  placeholder="Enter reason for extending duration..."
-                  value={extendingReason}
-                  disabled={isExtendingSubmit}
-                  onChange={e => setExtendingReason(e.target.value)}
-                />
-              </div>
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label" style={{ fontSize: '11px', color: '#64748b' }}>
+                    CURRENT DURATION (READ-ONLY)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#475569' }}
+                    disabled
+                    value={`${curr.value} ${curr.unit === 'DAYS' ? 'Days' : curr.unit === 'YEARS' ? 'Years' : 'Months'}`}
+                  />
+                </div>
 
-              <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  type="button"
-                  className="btn-cancel"
-                  style={{ flex: 1, height: '40px', cursor: isExtendingSubmit ? 'not-allowed' : 'pointer' }}
-                  onClick={() => setExtendingEmp(null)}
-                  disabled={isExtendingSubmit}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-submit-modal"
-                  style={{
-                    flex: 1,
-                    height: '40px',
-                    backgroundColor: 'var(--teal)',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    borderRadius: '8px',
-                    border: 'none',
-                    transition: 'all 0.2s',
-                    opacity: isExtendingSubmit ? 0.6 : 1,
-                    cursor: isExtendingSubmit ? 'not-allowed' : 'pointer'
-                  }}
-                  disabled={isExtendingSubmit}
-                >
-                  {isExtendingSubmit ? 'Updating...' : 'Confirm Extend'}
-                </button>
-              </div>
-            </form>
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                    NEW DURATION <span style={{ color: '#e11d48' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      disabled={isExtendingSubmit}
+                      className="form-input"
+                      style={{ flex: 1, marginBottom: '0px' }}
+                      placeholder="e.g. 4"
+                      value={extendingValue}
+                      onChange={e => setExtendingValue(e.target.value)}
+                    />
+                    <select
+                      disabled={isExtendingSubmit}
+                      className="form-input"
+                      style={{ width: '120px', marginBottom: '0px' }}
+                      value={extendingUnit}
+                      onChange={e => setExtendingUnit(e.target.value)}
+                    >
+                      <option value="DAYS">Days</option>
+                      <option value="MONTHS">Months</option>
+                      <option value="YEARS">Years</option>
+                    </select>
+                  </div>
+                </div>
+
+                {isValValid && (
+                  diffDays > 0 ? (
+                    <div style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#fffdf5',
+                      border: '1px solid #fef08a',
+                      color: '#854d0e',
+                      fontSize: '12.5px',
+                      marginBottom: '20px',
+                      lineHeight: '1.4'
+                    }}>
+                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                        ⚠ You are increasing the employee's Part-Time duration by {Math.abs(diffValue)} {unitLabel}.
+                      </div>
+                      <div>
+                        The employee's Part-Time end date will be extended to <strong>{formattedNewEndDate}</strong> after saving.
+                      </div>
+                    </div>
+                  ) : diffDays < 0 ? (
+                    <div style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#fffdf5',
+                      border: '1px solid #fef08a',
+                      color: '#854d0e',
+                      fontSize: '12.5px',
+                      marginBottom: '20px',
+                      lineHeight: '1.4'
+                    }}>
+                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                        ⚠ You are reducing the employee's Part-Time duration by {Math.abs(diffValue)} {unitLabel}.
+                      </div>
+                      <div>
+                        The employee's Part-Time end date will be shortened to <strong>{formattedNewEndDate}</strong> after saving.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      color: '#334155',
+                      fontSize: '12.5px',
+                      marginBottom: '20px',
+                      lineHeight: '1.4'
+                    }}>
+                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                        ℹ No change detected.
+                      </div>
+                      <div>
+                        The employee's Part-Time duration will remain unchanged.
+                      </div>
+                    </div>
+                  )
+                )}
+
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                    REASON / COMMENTS
+                  </label>
+                  <textarea
+                    className="form-input"
+                    style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
+                    placeholder="Enter reason for extending duration..."
+                    value={extendingReason}
+                    disabled={isExtendingSubmit}
+                    onChange={e => setExtendingReason(e.target.value)}
+                  />
+                </div>
+
+                <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    style={{ flex: 1, height: '40px', cursor: isExtendingSubmit ? 'not-allowed' : 'pointer' }}
+                    onClick={() => setExtendingEmp(null)}
+                    disabled={isExtendingSubmit}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-submit-modal"
+                    style={{
+                      flex: 1,
+                      height: '40px',
+                      backgroundColor: isSaveDisabled ? '#cbd5e1' : 'var(--teal)',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      borderRadius: '8px',
+                      border: 'none',
+                      transition: 'all 0.2s',
+                      opacity: isSaveDisabled ? 0.6 : 1,
+                      cursor: isSaveDisabled ? 'not-allowed' : 'pointer'
+                    }}
+                    disabled={isSaveDisabled}
+                  >
+                    {isExtendingSubmit ? 'Updating...' : 'Confirm Extend'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {isConvertModalOpen && convertingEmp && (
         <div className="modal-overlay open" style={{ zIndex: 1010, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}>
