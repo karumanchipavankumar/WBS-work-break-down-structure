@@ -163,14 +163,15 @@ public class TimesheetController {
             }
         }
 
-        if (isPartTimeEmp) {
+        boolean isLeaveOrWeekOff = "Paid Leave".equalsIgnoreCase(type) || "Unpaid Leave".equalsIgnoreCase(type) || "Week Off".equalsIgnoreCase(type);
+        if (isPartTimeEmp && !isLeaveOrWeekOff) {
             boolean isAmInEmpty = entry.getAmIn() == null || entry.getAmIn().trim().isEmpty() || "00:00".equals(entry.getAmIn().trim());
             boolean isAmOutEmpty = entry.getAmOut() == null || entry.getAmOut().trim().isEmpty() || "00:00".equals(entry.getAmOut().trim());
             boolean isPmInEmpty = entry.getPmIn() == null || entry.getPmIn().trim().isEmpty() || "00:00".equals(entry.getPmIn().trim());
             boolean isPmOutEmpty = entry.getPmOut() == null || entry.getPmOut().trim().isEmpty() || "00:00".equals(entry.getPmOut().trim());
             boolean isAllEmptyOrZero = isAmInEmpty && isAmOutEmpty && isPmInEmpty && isPmOutEmpty;
 
-            if (isWeekendOrHoliday && isAllEmptyOrZero) {
+            if (isWeekendOrHoliday && isAllEmptyOrZero && !"Part-Time".equalsIgnoreCase(type)) {
                 // Allowed to be empty on weekends or holidays
             } else {
                 if (isAllEmptyOrZero) {
@@ -324,7 +325,7 @@ public class TimesheetController {
         // ── 28-hour weekly cap for Part-Time employees (submission only) ────────
         // Only applies when the employee is actually submitting (status == "Pending").
         // Draft entries (status == "Draft" or null) are never counted toward the limit.
-        if (isPartTimeEmp && "Pending".equalsIgnoreCase(entry.getStatus())) {
+        if (isPartTimeEmp && "Pending".equalsIgnoreCase(entry.getStatus()) && !isLeaveOrWeekOff) {
             final int PT_WEEKLY_LIMIT_MINS = 28 * 60; // 1680 minutes
             java.util.Set<String> submittedStatuses = new java.util.HashSet<>(
                 java.util.Arrays.asList("Pending", "Approved", "Reapproval Pending")

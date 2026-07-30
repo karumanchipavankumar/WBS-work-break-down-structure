@@ -849,9 +849,31 @@ public class AdminController {
             if ("Part time".equalsIgnoreCase(empType)) {
                 if (durationValue == null) {
                     durationValue = user.getDurationValue();
+                    if (durationValue == null && user.getPartTimeDuration() != null) {
+                        String digits = user.getPartTimeDuration().replaceAll("\\D", "");
+                        if (!digits.isEmpty()) {
+                            try {
+                                durationValue = Integer.parseInt(digits);
+                            } catch (NumberFormatException e) {
+                                durationValue = 3;
+                            }
+                        } else {
+                            durationValue = 3;
+                        }
+                    }
                 }
                 if (durationUnit == null) {
                     durationUnit = user.getDurationUnit() != null ? user.getDurationUnit().trim().toUpperCase() : null;
+                    if (durationUnit == null && user.getPartTimeDuration() != null) {
+                        String lower = user.getPartTimeDuration().toLowerCase();
+                        if (lower.contains("day")) {
+                            durationUnit = "DAYS";
+                        } else if (lower.contains("year")) {
+                            durationUnit = "YEARS";
+                        } else {
+                            durationUnit = "MONTHS";
+                        }
+                    }
                 }
             }
 
@@ -1271,10 +1293,9 @@ public class AdminController {
 
             String reason = (String) body.get("reason");
             if (reason == null || reason.trim().isEmpty()) {
-                reason = "-";
-            } else {
-                reason = reason.trim();
+                return ResponseEntity.badRequest().body("Reason for extension is mandatory.");
             }
+            reason = reason.trim();
 
             String previousEndDate = user.getPartTimeEndDate();
             String previousDuration = user.getPartTimeDuration();

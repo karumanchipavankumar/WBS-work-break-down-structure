@@ -388,6 +388,8 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       contactNumber: rawNum,
       empType: viewProfileEmp.empType || 'Full time',
       partTimeDuration: viewProfileEmp.partTimeDuration || '',
+      durationValue: viewProfileEmp.durationValue,
+      durationUnit: viewProfileEmp.durationUnit,
       ptToFtConversionDate: viewProfileEmp.ptToFtConversionDate || getTodayDateString(),
       reason: ''
     });
@@ -398,6 +400,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     setIsEditCustomDuration(isCustom);
     setProfileEditErrors({});
     setIsEditingProfile(true);
+  };
+
+  const handleCloseProfileModal = () => {
+    setViewProfileEmp(null);
+    setIsEditingProfile(false);
+    setProfileEditErrors({});
   };
 
   const validateProfileEditForm = () => {
@@ -446,22 +454,6 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
         if (!/^\d{11}$/.test(profileEditData.contactNumber)) {
           errors.contactNumber = 'Please enter a valid 11-digit mobile number.';
         }
-      }
-    }
-
-    if (!profileEditData.empType) {
-      errors.empType = 'Please select an employee type.';
-    }
-
-    if (profileEditData.empType === 'Part time') {
-      if (!profileEditData.partTimeDuration || profileEditData.partTimeDuration.trim().length === 0) {
-        errors.partTimeDuration = 'Please specify a duration.';
-      }
-    }
-
-    if (profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time') {
-      if (!profileEditData.ptToFtConversionDate || !profileEditData.ptToFtConversionDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        errors.ptToFtConversionDate = 'Please select a valid conversion effective date.';
       }
     }
 
@@ -599,6 +591,11 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     const curr = getEmployeeDurationInfo(extendingEmp);
     if (curr.value === valNum && curr.unit === extendingUnit) {
       setExtendingError('No change detected. Please specify a different duration or unit.');
+      return;
+    }
+
+    if (!extendingReason || extendingReason.trim().length === 0) {
+      setExtendingError('Reason/comments for extension is required.');
       return;
     }
 
@@ -2205,21 +2202,30 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                         name="durationValue"
                         placeholder="e.g. 6"
                         min="1"
+                        max="99"
                         step="1"
                         disabled={isSubmitting}
                         className={`form-input ${formErrors.partTimeDuration ? 'invalid' : ''}`}
                         style={{ flex: 1, marginBottom: '0px' }}
                         value={durationValue}
+                        onKeyPress={e => {
+                          if (!/[0-9]/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
                         onChange={e => {
                           if (!checkPrecedingFields('partTimeDuration')) return;
-                          const val = e.target.value;
+                          let val = e.target.value.replace(/\D/g, '');
+                          if (val.length > 2) {
+                            val = val.slice(0, 2);
+                          }
                           setDurationValue(val);
                           
                           // Validate inline
                           const num = Number(val);
                           if (!val || val.trim().length === 0) {
                             setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
-                          } else if (isNaN(num) || num <= 0 || !Number.isInteger(num)) {
+                          } else if (num <= 0) {
                             setFormErrors(prev => ({ ...prev, partTimeDuration: 'Only positive whole numbers are allowed.' }));
                           } else {
                             setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
@@ -2351,13 +2357,14 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 </label>
                 <textarea
                   id="status-comments"
+                  maxLength={320}
                   className={`form-input ${statusCommentsError ? 'invalid' : ''}`}
                   style={{ resize: 'vertical', minHeight: '80px', marginBottom: '0px', width: '100%', cursor: isStatusProcessing ? 'not-allowed' : 'text' }}
-                  placeholder={statusReason === 'Other' ? "Provide mandatory comment detail..." : "Add optional comments..."}
+                  placeholder={statusReason === 'Other' ? "Provide mandatory comment detail (max 320 chars)..." : "Add optional comments (max 320 chars)..."}
                   value={statusComments}
                   disabled={isStatusProcessing}
                   onChange={(e) => {
-                    setStatusComments(e.target.value);
+                    setStatusComments(e.target.value.slice(0, 320));
                     if (e.target.value.trim()) setStatusCommentsError(false);
                   }}
                 />
@@ -2418,6 +2425,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 </label>
                 <textarea
                   id="delete-reason"
+                  maxLength={320}
                   className={`form-input ${deleteError ? 'invalid' : ''}`}
                   style={{
                     resize: 'vertical',
@@ -2426,11 +2434,11 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     marginBottom: '0px',
                     cursor: isDeleting ? 'not-allowed' : 'text'
                   }}
-                  placeholder="Please specify a valid reason for deletion..."
+                  placeholder="Please specify a valid reason for deletion (max 320 chars)..."
                   value={deleteReason}
                   disabled={isDeleting}
                   onChange={(e) => {
-                    setDeleteReason(e.target.value);
+                    setDeleteReason(e.target.value.slice(0, 320));
                     if (e.target.value.trim()) setDeleteError('');
                   }}
                 />
@@ -2583,13 +2591,25 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     <input
                       type="number"
                       min="1"
+                      max="99"
                       step="1"
                       disabled={isExtendingSubmit}
                       className="form-input"
                       style={{ flex: 1, marginBottom: '0px' }}
                       placeholder="e.g. 4"
                       value={extendingValue}
-                      onChange={e => setExtendingValue(e.target.value)}
+                      onKeyPress={e => {
+                        if (!/[0-9]/.test(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={e => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.length > 2) {
+                          val = val.slice(0, 2);
+                        }
+                        setExtendingValue(val);
+                      }}
                     />
                     <select
                       disabled={isExtendingSubmit}
@@ -2665,15 +2685,16 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
 
                 <div className="form-group" style={{ marginBottom: '20px' }}>
                   <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
-                    REASON / COMMENTS
+                    REASON / COMMENTS <span style={{ color: '#e11d48' }}>*</span>
                   </label>
                   <textarea
+                    maxLength={320}
                     className="form-input"
                     style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
-                    placeholder="Enter reason for extending duration..."
+                    placeholder="Enter reason for extending duration (max 320 chars)..."
                     value={extendingReason}
                     disabled={isExtendingSubmit}
-                    onChange={e => setExtendingReason(e.target.value)}
+                    onChange={e => setExtendingReason(e.target.value.slice(0, 320))}
                   />
                 </div>
 
@@ -2798,12 +2819,13 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                   REASON / COMMENTS
                 </label>
                 <textarea
+                  maxLength={320}
                   className="form-input"
                   style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
-                  placeholder="Enter reason for conversion to Full-Time..."
+                  placeholder="Enter reason for conversion to Full-Time (max 320 chars)..."
                   value={conversionReason}
                   disabled={isConverting}
-                  onChange={e => setConversionReason(e.target.value)}
+                  onChange={e => setConversionReason(e.target.value.slice(0, 320))}
                 />
               </div>
 
@@ -3175,7 +3197,14 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
         <div 
           className="modal-overlay open" 
           style={{ zIndex: 1002 }}
-          onClick={() => setViewProfileEmp(null)}
+          onClick={() => {
+            if (isEditingProfile) {
+              setIsEditingProfile(false);
+              setProfileEditErrors({});
+            } else {
+              handleCloseProfileModal();
+            }
+          }}
         >
           <div 
             className="modal add-emp-modal" 
@@ -3197,7 +3226,14 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
               </h3>
               <button 
                 className="modal-close" 
-                onClick={() => setViewProfileEmp(null)}
+                onClick={() => {
+                  if (isEditingProfile) {
+                    setIsEditingProfile(false);
+                    setProfileEditErrors({});
+                  } else {
+                    handleCloseProfileModal();
+                  }
+                }}
                 style={{ fontSize: '20px', cursor: 'pointer' }}
               >
                 ×
@@ -3491,131 +3527,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                   {profileEditErrors.contactNumber && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.contactNumber}</span>}
                 </div>
 
-                {/* Employee Type */}
-                <div>
-                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Employee Type <span style={{ color: '#e11d48' }}>*</span></label>
-                  <select
-                    disabled={isProfileSaving}
-                    className={`form-input ${profileEditErrors.empType ? 'invalid' : ''}`}
-                    value={profileEditData.empType}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setProfileEditData({ ...profileEditData, empType: val, partTimeDuration: '' });
-                      setProfileEditErrors(prev => ({ ...prev, empType: '', partTimeDuration: '' }));
-                      setIsEditCustomDuration(false);
-                    }}
-                  >
-                    <option value="">Select Employee Type</option>
-                    <option value="Full time">Full time</option>
-                    <option value="Part time">Part time</option>
-                  </select>
-                  {profileEditErrors.empType && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.empType}</span>}
-                </div>
 
-                {/* Part Time Duration */}
-                {profileEditData.empType === 'Part time' ? (
-                  <div>
-                    <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Part Time Duration <span style={{ color: '#e11d48' }}>*</span></label>
-                    {!isEditCustomDuration ? (
-                      <select
-                        disabled={isProfileSaving}
-                        className={`form-input ${profileEditErrors.partTimeDuration ? 'invalid' : ''}`}
-                        value={profileEditData.partTimeDuration}
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (val === 'custom') {
-                            setIsEditCustomDuration(true);
-                            setProfileEditData(prev => ({ ...prev, partTimeDuration: '' }));
-                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
-                          } else {
-                            setProfileEditData(prev => ({ ...prev, partTimeDuration: val }));
-                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
-                          }
-                        }}
-                      >
-                        <option value="">Select Duration</option>
-                        <option value="3 months">3 months</option>
-                        <option value="6 months">6 months</option>
-                        <option value="custom" style={{ fontWeight: 'bold', color: 'var(--teal)' }}>Other / Enter Manually...</option>
-                      </select>
-                    ) : (
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <input
-                          type="text"
-                          disabled={isProfileSaving}
-                          className={`form-input ${profileEditErrors.partTimeDuration ? 'invalid' : ''}`}
-                          style={{ paddingRight: '45px', marginBottom: '0px', width: '100%' }}
-                          placeholder="e.g. 9 months"
-                          value={profileEditData.partTimeDuration}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setProfileEditData(prev => ({ ...prev, partTimeDuration: val }));
-                            if (!val || val.trim().length === 0) {
-                              setProfileEditErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
-                            } else {
-                              setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsEditCustomDuration(false);
-                            setProfileEditData(prev => ({ ...prev, partTimeDuration: '' }));
-                            setProfileEditErrors(prev => ({ ...prev, partTimeDuration: '' }));
-                          }}
-                          style={{
-                            position: 'absolute',
-                            right: '8px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            color: 'var(--teal)',
-                            fontWeight: 'bold',
-                            padding: '4px'
-                          }}
-                        >
-                          List
-                        </button>
-                      </div>
-                    )}
-                    {profileEditErrors.partTimeDuration && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.partTimeDuration}</span>}
-                  </div>
-                ) : (
-                  profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time' ? (
-                    <div>
-                      <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Conversion Date <span style={{ color: '#e11d48' }}>*</span></label>
-                      <input
-                        type="date"
-                        disabled={isProfileSaving}
-                        className={`form-input ${profileEditErrors.ptToFtConversionDate ? 'invalid' : ''}`}
-                        value={profileEditData.ptToFtConversionDate || ''}
-                        onChange={e => {
-                          setProfileEditData({ ...profileEditData, ptToFtConversionDate: e.target.value });
-                          setProfileEditErrors({ ...profileEditErrors, ptToFtConversionDate: '' });
-                        }}
-                      />
-                      {profileEditErrors.ptToFtConversionDate && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.ptToFtConversionDate}</span>}
-                    </div>
-                  ) : (
-                    <div />
-                  )
-                )}
-                {((profileEditData.empType === 'Full time' && viewProfileEmp.empType === 'Part time') ||
-                  (profileEditData.empType === 'Part time' && viewProfileEmp.empType === 'Part time' && profileEditData.partTimeDuration !== viewProfileEmp.partTimeDuration)) && (
-                  <div style={{ gridColumn: 'span 2', marginTop: '10px' }}>
-                    <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Reason / Comments</label>
-                    <textarea
-                      className="form-input"
-                      style={{ resize: 'vertical', minHeight: '60px', width: '100%', borderRadius: '6px', fontSize: '12.5px', padding: '8px' }}
-                      placeholder="Enter comments or reason for this status change..."
-                      value={profileEditData.reason || ''}
-                      disabled={isProfileSaving}
-                      onChange={e => setProfileEditData({ ...profileEditData, reason: e.target.value })}
-                    />
-                  </div>
-                )}
               </div>
             )}
 
@@ -3664,7 +3576,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 <>
                   <button
                     className="btn btn-ghost btn-md"
-                    onClick={() => { setViewProfileEmp(null); setIsEditingProfile(false); }}
+                    onClick={handleCloseProfileModal}
                     style={{ flex: 1, padding: '10px', borderRadius: '8px', fontSize: '13.5px' }}
                   >
                     Close View

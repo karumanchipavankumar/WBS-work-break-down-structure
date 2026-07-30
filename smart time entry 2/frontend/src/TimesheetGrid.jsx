@@ -458,6 +458,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [imgPreview, setImgPreview] = useState(null);
   const [initialOtData, setInitialOtData] = useState(null);
   const [exportModal, setExportModal] = useState({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '' });
+  const exportAbortControllerRef = React.useRef(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [processingMessage, setProcessingMessage] = useState(null);
   const [toast, setToast] = useState({ type: '', text: '' });
@@ -1078,13 +1079,36 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const [h, m] = t.split(':').map(Number);
     return h * 60 + (m || 0);
   };
-
-  const getValidationErrors = (row) => {
+  const getValidationErrors = (row, forceValidate = false) => {
     const errors = [];
-    const isWknd = row.date && (getDay(parseISO(row.date)) === 0 || getDay(parseISO(row.date)) === 6);
+    const dateStr = row.date;
+
+    // Bypass validation for future days and days before joining date
+    if (dateStr) {
+      if (isAfter(startOfDay(parseISO(dateStr)), startOfDay(new Date()))) {
+        return errors;
+      }
+      if (employee?.dateOfJoining) {
+        try {
+          const doj = startOfDay(parseISO(employee.dateOfJoining));
+          if (startOfDay(parseISO(dateStr)) < doj) {
+            return errors;
+          }
+        } catch (e) {
+          console.error("Error parsing joining date in validation", e);
+        }
+      }
+    }
+
+    // Bypass validation for pristine dummy/placeholder rows (unless forceValidate is true)
+    const isPristineDummy = !forceValidate && dateStr && !entries[dateStr] && !editedRows[dateStr];
+    if (isPristineDummy) {
+      return errors;
+    }
+
+    const isWknd = dateStr && (getDay(parseISO(dateStr)) === 0 || getDay(parseISO(dateStr)) === 6);
     const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
     const isWeekendOrHoliday = isWknd || type === 'Holiday';
-
     if (!['Working Day', 'WFH', 'Holiday', 'W-Day (1st Half)', 'W-Day (2nd Half)', 'Part-Time'].includes(type)) {
       return errors;
     }
@@ -1152,12 +1176,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         errors.push("PM Out must be at or after 12:00");
       }
 
-      if (isWeekendOrHoliday && isAllEmptyOrZero) {
+      if (isWeekendOrHoliday && isAllEmptyOrZero && type !== 'Part-Time') {
         return errors;
       }
 
       // Silently skip completely untouched rows — do NOT show any error
-      if (isAllUntouched) {
+      if (isAllUntouched && type !== 'Part-Time') {
         return errors;
       }
 
@@ -1564,7 +1588,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     // ── 28-hour weekly cap for Part-Time employees (submitted entries only) ─
     // The weekly limit is only enforced at submission time.
     // Draft (saved but not submitted) entries do NOT count toward the 28-hour cap.
-    if (isSubmit && !isAdmin && getEmpTypeForDate(employee, dateStr) === 'Part time') {
+    const isLeaveOrWeekOff = ['Paid Leave', 'Unpaid Leave', 'Week Off'].includes(type);
+    if (isSubmit && !isAdmin && getEmpTypeForDate(employee, dateStr) === 'Part time' && !isLeaveOrWeekOff) {
       const PT_WEEKLY_LIMIT_MINS = 28 * 60; // 1680 minutes
       // Statuses that are considered "submitted" and count toward the weekly total
       const SUBMITTED_STATUSES = ['Pending', 'Approved', 'Reapproval Pending'];
@@ -1640,7 +1665,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    const errs = getValidationErrors(row);
+    const errs = getValidationErrors(row, true);
     if (errs.length > 0) {
       await showAlert('Validation Errors: ' + errs.join(', '), { title: 'Validation Error', type: 'warn' });
       focusFirstRowInvalidField();
@@ -2106,7 +2131,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       row.id = entries[otModal.dateStr].id;
     }
     
-    const errs = getValidationErrors(row);
+    const errs = getValidationErrors(row, true);
     if (errs.length > 0) { await showAlert('Validation Errors: ' + errs.join(', '), { title: 'Validation Error', type: 'warn' }); return; }
 
     const h = calculateHours(row);
@@ -2220,6 +2245,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     setExportModal({ isOpen: true, fromDate: firstDay, toDate: lastDay, isLoading: false, error: '' });
   };
 
+  const handleCancelExport = () => {
+    if (exportAbortControllerRef.current) {
+      exportAbortControllerRef.current.abort();
+    }
+    setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '', fromDateError: false, toDateError: false });
+  };
+
   const handleExportSubmit = async () => {
     const { fromDate, toDate } = exportModal;
     console.log('[Export] Start submit', { fromDate, toDate });
@@ -2255,6 +2287,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return;
     }
     setExportModal(m => ({ ...m, isLoading: true, error: '', fromDateError: false, toDateError: false }));
+    exportAbortControllerRef.current = new AbortController();
     try {
       const filename = getExportFilename(employee.name, employee.empId, fromDate, toDate);
       console.log('[Export] Generated filename:', filename);
@@ -2278,7 +2311,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         const [yr, mo] = key.split('-');
         try {
           console.log(`[Export] Fetching timesheets for month: ${yr}-${mo}`);
-          const res = await api.get(`/timesheets/${employee.empId}/${yr}/${mo}`);
+          const res = await api.get(`/timesheets/${employee.empId}/${yr}/${mo}`, {
+            signal: exportAbortControllerRef.current.signal
+          });
           console.log(`[Export] Fetched ${res.data.length} entries for ${yr}-${mo}`);
           res.data.forEach(e => { allEntries[e.date] = e; });
         } catch (monthErr) {
@@ -2357,7 +2392,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       console.log('[Export] Submitting payload to backend');
 
       const response = await api.post('/admin/export/timesheet', payload, {
-        responseType: 'blob'
+        responseType: 'blob',
+        signal: exportAbortControllerRef.current.signal
       });
       console.log('[Export] Received response from backend, status:', response.status);
 
@@ -2382,6 +2418,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       console.log('[Export] Finished successfully!');
 
     } catch (err) {
+      if (err.name === 'CanceledError' || err.message === 'canceled' || err.code === 'ERR_CANCELED') {
+        console.log('[Export] Request was cancelled by the user');
+        return;
+      }
       console.error('[Export] Error caught:', err);
       let errMsg = err?.message || 'Export failed. Please try again.';
       if (err?.response && err.response.data instanceof Blob) {
@@ -2572,7 +2612,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               <div className="stat-card" style={{borderLeft: '4px solid #f59e0b', boxShadow: 'none', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#fff'}}><div className="stat-label">Leave Hours</div><div className="stat-value" style={{color:'#f59e0b'}}>{fmtMins(leaveHrs)}</div><div className="stat-sub">paid/unpaid</div></div>
               <div className="stat-card" style={{borderLeft: '4px solid #e11d48', boxShadow: 'none', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#fff'}}><div className="stat-label">Holiday Hours</div><div className="stat-value" style={{color:'#e11d48'}}>{fmtMins(holHrs)}</div><div className="stat-sub">public holidays</div></div>
               <div className="stat-card" style={{borderLeft: '4px solid #8b5cf6', boxShadow: 'none', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#fff'}}><div className="stat-label">Working Days</div><div className="stat-value" style={{color:'#8b5cf6'}}>{days.length - wkndDays}</div><div className="stat-sub">in month</div></div>
-              <div className="stat-card" style={{borderLeft: '4px solid #d97706', boxShadow: 'none', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#fff'}}><div className="stat-label">Pending Appr.</div><div className="stat-value" style={{color:'#d97706'}}>{pendAppr}</div><div className="stat-sub">requests</div></div>
+              <div className="stat-card" style={{borderLeft: '4px solid #d97706', boxShadow: 'none', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#fff'}}><div className="stat-label">Pending Approvals</div><div className="stat-value" style={{color:'#d97706'}}>{pendAppr}</div><div className="stat-sub">requests</div></div>
             </>
           )}
         </div>
@@ -2709,7 +2749,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 let row = editedRows[dateStr] || entries[dateStr] || (() => {
                   const defEmpType = getEmpTypeForDate(employee, dateStr);
                   const defType = isWknd ? 'Week Off' : (defEmpType === 'Part time' ? 'Part-Time' : 'Working Day');
-                  return { type: defType, status: '' };
+                  return { type: defType, status: '', date: dateStr };
                 })();
 
                 const isEdited = !!editedRows[dateStr];
@@ -3432,11 +3472,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                       <>
                         <textarea 
                           id="ot-reason"
+                          maxLength={320}
                           className={`form-input ${otModal.hasError ? 'invalid' : ''}`} 
                           style={{height: '80px', width: '100%', padding: '10px', borderRadius: '6px', border: otModal.hasError ? '1.5px solid #ef4444' : '1px solid #ddd', fontSize: '13px', resize: 'vertical'}}
                           value={otModal.reason}
-                          onChange={e => setOtModal({...otModal, reason: e.target.value, hasError: false, errorMsg: ''})}
-                          placeholder={otModal.isReapply ? "Enter the new reason for OT" : "Enter the reason for OT"}
+                          onChange={e => setOtModal({...otModal, reason: e.target.value.slice(0, 320), hasError: false, errorMsg: ''})}
+                          placeholder={otModal.isReapply ? "Enter the new reason for OT (max 320 chars)" : "Enter the reason for OT (max 320 chars)"}
                           disabled={otModal.isReadOnly}
                         />
                         {otModal.hasError && (
@@ -3614,12 +3655,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             <label style={{display:'block', marginBottom:'8px', fontWeight:'bold'}}>Reason for Rejection <span style={{color:'#e11d48'}}>*</span></label>
             <textarea 
               id="reject-reason"
+              maxLength={320}
               rows="4" 
               value={rejectModal.reason} 
-              onChange={e => setRejectModal({...rejectModal, reason: e.target.value, hasError: false})}
+              onChange={e => setRejectModal({...rejectModal, reason: e.target.value.slice(0, 320), hasError: false})}
               className={`form-input ${rejectModal.hasError ? 'invalid' : ''}`}
               style={{width:'100%', padding:'10px', borderRadius:'4px', border: rejectModal.hasError ? '1.5px solid #ef4444' : '1px solid #ccc'}}
-              placeholder="Please provide a reason for rejection..."
+              placeholder="Please provide a reason for rejection (max 320 chars)..."
             />
             {rejectModal.hasError && (
               <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
@@ -3647,11 +3689,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             <label style={{display:'block', marginBottom:'8px', fontWeight:'bold'}}>Message <span style={{color:'#e11d48'}}>*</span></label>
             <textarea 
               id="grant-message"
+              maxLength={320}
               rows="3" 
               value={grantModal.message} 
-              onChange={e => setGrantModal({...grantModal, message: e.target.value, hasError: false})}
+              onChange={e => setGrantModal({...grantModal, message: e.target.value.slice(0, 320), hasError: false})}
               className={`form-input ${grantModal.hasError ? 'invalid' : ''}`}
               style={{width:'100%', padding:'10px', borderRadius:'4px', border: grantModal.hasError ? '1.5px solid #ef4444' : '1px solid #ccc', resize: 'vertical'}}
+              placeholder="Enter message for resubmission access (max 320 chars)..."
             />
             {grantModal.hasError && (
               <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
@@ -3797,12 +3841,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               </label>
               <textarea
                 className="form-input"
+                maxLength={320}
                 style={{ resize: 'vertical', minHeight: '90px', marginBottom: '0px', width: '100%' }}
-                placeholder="Explain why working hours are less than 8 hours..."
+                placeholder="Explain why working hours are less than 8 hours (max 320 chars)..."
                 value={shortHoursReasonText}
                 disabled={shortHoursModalData.isReadOnly}
                 onChange={(e) => {
-                  setShortHoursReasonText(e.target.value);
+                  setShortHoursReasonText(e.target.value.slice(0, 320));
                   if (e.target.value.trim()) setShortHoursError('');
                 }}
               />
@@ -3877,11 +3922,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 </label>
                 <textarea
                   className="form-input"
+                  maxLength={320}
                   style={{ resize: 'vertical', minHeight: '80px', width: '100%' }}
-                  placeholder="Explain why this short hours reason is being rejected..."
+                  placeholder="Explain why this short hours reason is being rejected (max 320 chars)..."
                   value={adminRejectionText}
                   onChange={(e) => {
-                    setAdminRejectionText(e.target.value);
+                    setAdminRejectionText(e.target.value.slice(0, 320));
                     if (e.target.value.trim()) setAdminShortHoursError('');
                   }}
                 />
@@ -3993,7 +4039,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               </div>
               <button
                 type="button"
-                onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '', fromDateError: false, toDateError: false })}
+                onClick={handleCancelExport}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', width: '30px', height: '30px', cursor: 'pointer', color: '#fff', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >×</button>
             </div>
@@ -4105,13 +4151,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               }}>
                 <button
                   type="button"
-                  onClick={() => setExportModal({ isOpen: false, fromDate: '', toDate: '', isLoading: false, error: '', fromDateError: false, toDateError: false })}
-                  disabled={exportModal.isLoading}
+                  onClick={handleCancelExport}
                   style={{
                     flex: 1, padding: '10px', borderRadius: '8px',
                     border: '1.5px solid #e2e8f0', background: '#fff',
                     color: '#475569', fontSize: '13.5px', fontWeight: '600',
-                    cursor: exportModal.isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s'
+                    cursor: 'pointer', transition: 'all 0.2s'
                   }}
                 >Cancel</button>
                 <button

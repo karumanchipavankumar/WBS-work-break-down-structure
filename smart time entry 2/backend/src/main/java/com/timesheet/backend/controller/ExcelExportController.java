@@ -76,17 +76,10 @@ public class ExcelExportController {
                 }
             }
 
-            // Auto-size columns with min and max bounds
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-                int currentWidth = sheet.getColumnWidth(i);
-                int minWidth = 3200; // ~12 characters
-                int maxWidth = 12000; // ~45 characters
-                if (currentWidth < minWidth) {
-                    sheet.setColumnWidth(i, minWidth);
-                } else if (currentWidth > maxWidth) {
-                    sheet.setColumnWidth(i, maxWidth);
-                }
+            // Set fixed column widths for instant export
+            int[] colWidths = {2000, 4000, 6000, 8000, 5000, 5000, 5000, 5000, 3500};
+            for (int i = 0; i < colWidths.length; i++) {
+                sheet.setColumnWidth(i, colWidths[i]);
             }
 
             // Freeze the header row
@@ -613,20 +606,30 @@ public class ExcelExportController {
         sheet.addMergedRegion(new CellRangeAddress(footerIdx, footerIdx, 0, 18));
 
         // â”€â”€ Column sizing & freeze pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        for (int i = 0; i < 19; i++) {
-            if (i == 14) {
-                sheet.setColumnWidth(14, 1000);
-            } else {
-                sheet.autoSizeColumn(i);
-                int currentWidth = sheet.getColumnWidth(i);
-                int minWidth = 3200; // ~12 characters
-                int maxWidth = 12000; // ~45 characters
-                if (currentWidth < minWidth) {
-                    sheet.setColumnWidth(i, minWidth);
-                } else if (currentWidth > maxWidth) {
-                    sheet.setColumnWidth(i, maxWidth);
-                }
-            }
+        // Set fixed column widths for instant export
+        int[] colWidths = {
+            3500, // Date
+            2500, // Day
+            4500, // Day Type
+            3000, // AM In
+            3000, // AM Out
+            3000, // Lunch In
+            3000, // Lunch Out
+            3000, // PM In
+            3000, // PM Out
+            3000, // Reg Hrs
+            3000, // OT Hrs
+            3000, // Total
+            4000, // OT status
+            4500, // Status
+            1000, // Spacer (Col 14)
+            5000, // Monthly Summary Label Col 15
+            3000, // Col 16
+            3000, // Col 17
+            4000  // Col 18 (Value)
+        };
+        for (int i = 0; i < colWidths.length; i++) {
+            sheet.setColumnWidth(i, colWidths[i]);
         }
         sheet.createFreezePane(0, 7);
     }
