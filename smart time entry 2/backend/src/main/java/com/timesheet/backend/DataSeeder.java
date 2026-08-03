@@ -28,45 +28,15 @@ public class DataSeeder {
                 }
             }
 
-            // Seed Manager Ravi Kumar
-            if (userRepository.findByEmpId("OFI-2020").isEmpty()) {
-                User mgr = new User();
-                mgr.setEmpId("OFI-2020");
-                mgr.setPassword(passwordEncoder.encode("password"));
-                mgr.setName("Ravi Kumar");
-                mgr.setRole("employee");
-                mgr.setDept("IT");
-                mgr.setEmail("k.ravi@oryfolks.com");
-                mgr.setManager("Admin User");
-                mgr.setInitials("RK");
-                mgr.setColor("#3a8dc5");
-                mgr.setDateOfJoining("2020-01-01");
-                mgr.setCountry("India (+91)");
-                mgr.setContactNumber("9199999999");
-                mgr.setEmpType("Full time");
-                userRepository.save(mgr);
-                System.out.println("Dummy Manager created: OFI-2020 / password");
-            }
-
-            // Seed Employee
-            if (userRepository.findByEmpId("OFI-2024").isEmpty()) {
-                User emp = new User();
-                emp.setEmpId("OFI-2024");
-                emp.setPassword(passwordEncoder.encode("password"));
-                emp.setName("Sreenath C");
-                emp.setRole("employee");
-                emp.setDept("IT");
-                emp.setEmail("c.sreenath@oryfolks.com");
-                emp.setManager("Ravi Kumar");
-                emp.setInitials("SC");
-                emp.setColor("#2d8f7b");
-                emp.setDateOfJoining("2024-01-01");
-                emp.setCountry("India (+91)");
-                emp.setContactNumber("9876543210");
-                emp.setEmpType("Full time");
-                userRepository.save(emp);
-                System.out.println("Dummy Employee created: OFI-2024 / password");
-            }
+            // Delete Sreenath C (OFI-2024) and Ravi Kumar (OFI-2020) if they exist
+            userRepository.findByEmpId("OFI-2020").ifPresent(u -> {
+                userRepository.delete(u);
+                System.out.println("Cleaned up and deleted dummy user OFI-2020");
+            });
+            userRepository.findByEmpId("OFI-2024").ifPresent(u -> {
+                userRepository.delete(u);
+                System.out.println("Cleaned up and deleted dummy user OFI-2024");
+            });
 
             // Cleanup and Sync Admin
             for (User u : userRepository.findAll()) {
