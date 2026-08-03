@@ -1143,6 +1143,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return errors;
     }
 
+    const isAmInEmpty  = !row.amIn  || row.amIn  === '00:00';
+    const isAmOutEmpty = !row.amOut || row.amOut === '00:00';
+    const isPmInEmpty  = !row.pmIn  || row.pmIn  === '00:00';
+    const isPmOutEmpty = !row.pmOut || row.pmOut === '00:00';
+    const isAllWorkingHoursEmpty = isAmInEmpty && isAmOutEmpty && isPmInEmpty && isPmOutEmpty;
+
+    if (isWeekendOrHoliday && isAllWorkingHoursEmpty) {
+      return errors;
+    }
+
     const isPartTimeEmp = getEmpTypeForDate(employee, row.date) === 'Part time';
     if (isPartTimeEmp) {
       // "truly empty" = null/undefined (untouched field — HH:MM placeholder shown)
@@ -2341,7 +2351,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
           const dateStr = format(d, 'yyyy-MM-dd');
           const row = allEntries[dateStr] || {};
           const isWknd = isWeekendDay(d);
-          const type = row.type || (isWknd ? 'Week Off' : 'Working Day');
+          const empTypeForDate = getEmpTypeForDate(employee, dateStr);
+          const isPartTimeForDate = empTypeForDate === 'Part time';
+          const defaultDayType = isWknd ? 'Week Off' : (isPartTimeForDate ? 'Part-Time' : 'Working Day');
+          const type = row.type || defaultDayType;
           const h = calculateHours(row);
 
           // Compute display status matching UI logic
@@ -2371,7 +2384,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             totalHrs: (h.error || h.tot === '--') ? '' : h.tot,
             otStatus: displayOtStatus,
             status:   displayStatus,
-            isWeekend: String(isWknd)
+            isWeekend: String(isWknd),
+            empType:  empTypeForDate
           };
         });
         return { monthLabel: label, rows };
@@ -2386,6 +2400,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         manager:  employee.manager || '',
         projectName: employee.projectName || '',
         companyName: employee.companyName || '',
+        empType:  employee.empType || 'Full time',
         filename,
         months   // array of { monthLabel, rows }
       };

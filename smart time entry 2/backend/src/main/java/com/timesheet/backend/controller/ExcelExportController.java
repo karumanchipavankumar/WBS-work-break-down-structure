@@ -106,6 +106,7 @@ public class ExcelExportController {
             String manager = str(payload.getOrDefault("manager", ""));
             String projectName = str(payload.getOrDefault("projectName", ""));
             String companyName = str(payload.getOrDefault("companyName", ""));
+            String empType = str(payload.getOrDefault("empType", "Full time"));
             String filename = (String) payload.getOrDefault("filename", empId + "_timesheet.xlsx");
 
             @SuppressWarnings("unchecked")
@@ -118,7 +119,7 @@ public class ExcelExportController {
                     @SuppressWarnings("unchecked")
                     List<Map<String, Object>> rows = (List<Map<String, Object>>) monthEntry.get("rows");
                     String sheetName = monthLabel.length() > 28 ? monthLabel.substring(0, 28) + "..." : monthLabel;
-                    buildTimesheetSheet(workbook, sheetName, empName, empId, dept, manager, projectName, companyName, monthLabel, rows);
+                    buildTimesheetSheet(workbook, sheetName, empName, empId, dept, manager, projectName, companyName, monthLabel, empType, rows);
                 }
             } else {
                 // â”€â”€ Legacy single-sheet fallback (rows at top level) â”€â”€
@@ -127,7 +128,7 @@ public class ExcelExportController {
                 String monthYear = str(payload.getOrDefault("monthYear", ""));
                 String sheetLabel = (empName + " " + monthYear);
                 if (sheetLabel.length() > 28) sheetLabel = sheetLabel.substring(0, 28) + "...";
-                buildTimesheetSheet(workbook, sheetLabel, empName, empId, dept, manager, projectName, companyName, monthYear, rows);
+                buildTimesheetSheet(workbook, sheetLabel, empName, empId, dept, manager, projectName, companyName, monthYear, empType, rows);
             }
 
             workbook.setForceFormulaRecalculation(true);
@@ -148,7 +149,7 @@ public class ExcelExportController {
                                      String empName, String empId,
                                      String dept,   String manager,
                                      String projectName, String companyName,
-                                     String monthLabel,
+                                     String monthLabel, String empType,
                                      List<Map<String, Object>> rows) {
 
         Sheet sheet = workbook.createSheet(sheetName);
@@ -517,19 +518,26 @@ public class ExcelExportController {
         XSSFCellStyle sumLabelTot = cloneWithBg(workbook, sumLabelStyle, totHrsBg);
         XSSFCellStyle sumValueTot = cloneWithBg(workbook, sumValueStyle, totHrsBg);
 
-        // --- Monthly Summary (Columns P-S) ------------------------------------
-        int sR = 1;
-        Row sumHdr = sheet.getRow(sR); if (sumHdr == null) sumHdr = sheet.createRow(sR);
-        for (int i = 15; i <= 18; i++) { Cell c = sumHdr.createCell(i); c.setCellStyle(sumHeaderStyle); }
-        sumHdr.getCell(15).setCellValue("MONTHLY SUMMARY");
-        sheet.addMergedRegion(new CellRangeAddress(sR, sR, 15, 18));
+        // ─────────────────────────────────────────────────────────────────────
+        // MONTHLY SUMMARY — separate FT / PT blocks + combined totals
+        // Columns 15–18 (P–S)
+        // ─────────────────────────────────────────────────────────────────────
+        boolean isPartTime = "Part time".equalsIgnoreCase(empType.trim())
+                          || "Part-time".equalsIgnoreCase(empType.trim())
+                          || "part_time".equalsIgnoreCase(empType.trim());
 
-        // ── Compute summary metrics (6-row summary) ────────────────────────────
-        double daysLoggedCount  = 0;   // all submitted
-        double wkndHolDaysCount = 0;   // weekend + holiday submitted days
-        long regHrsTotalMins      = 0;
-        long wkndHolHrsTotalMins  = 0; // Total weekends & Holiday hours worked
-        long otHrsTotalMins       = 0;
+        // ── Compute FT metrics ────────────────────────────────────────────────
+        double ftDaysLogged    = 0;
+        double ftWkndDays      = 0;
+        long   ftRegMins       = 0;   // regular working-day hours
+        long   ftWkdOtMins     = 0;   // weekday OT hours
+        long   ftWkndMins      = 0;   // weekend/holiday hours
+
+        // ── Compute PT metrics ────────────────────────────────────────────────
+        double ptDaysLogged    = 0;
+        double ptWkndDays      = 0;
+        long   ptRegMins       = 0;   // regular weekday working hours
+        long   ptWkndMins      = 0;   // weekend/holiday hours
 
         if (rows != null) {
             for (Map<String, Object> r : rows) {
@@ -540,58 +548,236 @@ public class ExcelExportController {
                 String otHrs    = str(r.get("otHrs")).trim();
                 boolean isWeekend = "true".equalsIgnoreCase(str(r.get("isWeekend")));
 
-                boolean isSubmitted = !status.isEmpty() && !"Draft".equalsIgnoreCase(status);
-                boolean isWkndOrHol = isWeekend
-                                      || "Week Off".equalsIgnoreCase(type)
-                                      || "Holiday".equalsIgnoreCase(type);
+                // Determine if this specific day was worked as Part-Time
+                String rowEmpType = r.containsKey("empType") ? str(r.get("empType")).trim() : empType;
+                boolean isRowPartTime = "Part time".equalsIgnoreCase(rowEmpType)
+                                     || "Part-time".equalsIgnoreCase(rowEmpType)
+                                     || "part_time".equalsIgnoreCase(rowEmpType)
+                                     || "Part-Time".equalsIgnoreCase(type);
 
-                // Days Logged: every submitted entry regardless of type or hours
-                if (isSubmitted) {
-                    daysLoggedCount++;
-                    if (isWkndOrHol && "Approved".equalsIgnoreCase(status)) {
-                        wkndHolDaysCount++;
-                    }
+                boolean isSubmitted = !status.isEmpty() && !"Draft".equalsIgnoreCase(status);
+                // Only count entries approved by the admin (Approved or Permission Granted statuses)
+                boolean isApproved  = "Approved".equalsIgnoreCase(status)
+                                   || "Permission Granted".equalsIgnoreCase(status);
+
+                boolean isWkndOrHol = isWeekend
+                                   || "Week Off".equalsIgnoreCase(type)
+                                   || "Holiday".equalsIgnoreCase(type);
+
+                long rMins = 0;
+                if (isApproved && !regHrs.isEmpty() && !"--".equals(regHrs)) {
+                    rMins = parseTimeToMinutes(regHrs);
+                }
+                long oMins = 0;
+                if (isApproved && !otHrs.isEmpty() && !"--".equals(otHrs)) {
+                    oMins = parseTimeToMinutes(otHrs);
                 }
 
-                // Hours: approved entries only
-                if ("Approved".equalsIgnoreCase(status)) {
-                    long rMins = 0;
-                    if (!regHrs.isEmpty() && !"--".equals(regHrs)) {
-                        rMins = parseTimeToMinutes(regHrs);
+                if (!isRowPartTime) {
+                    // ── Full-Time ──
+                    if (isSubmitted) {
+                        ftDaysLogged++;
+                        // Only count as weekend/holiday worked if approved and timings are filled
+                        if (isWkndOrHol && isApproved && (rMins > 0 || oMins > 0)) {
+                            ftWkndDays++;
+                        }
                     }
-                    long oMins = 0;
-                    if ("Approved".equalsIgnoreCase(otStatus)
-                            && !otHrs.isEmpty() && !"--".equals(otHrs)) {
-                        oMins = parseTimeToMinutes(otHrs);
-                    }
-
                     if (isWkndOrHol) {
-                        wkndHolHrsTotalMins += (rMins + oMins);
-                        otHrsTotalMins += (rMins + oMins); // all hours worked on weekends/holidays count as OT
+                        // For FT, all weekend/holiday hours count as OT
+                        ftWkndMins += (rMins + oMins);
                     } else {
-                        regHrsTotalMins += rMins;
-                        otHrsTotalMins += oMins;
+                        ftRegMins  += rMins;
+                        ftWkdOtMins += oMins;
+                    }
+                } else {
+                    // ── Part-Time ──
+                    if (isSubmitted) {
+                        ptDaysLogged++;
+                        // Only count as weekend/holiday worked if approved and timings are filled
+                        if (isWkndOrHol && isApproved && (rMins > 0 || oMins > 0)) {
+                            ptWkndDays++;
+                        }
+                    }
+                    if (isWkndOrHol) {
+                        // For PT, weekend hours are regular (no OT)
+                        ptWkndMins += (rMins + oMins);
+                    } else {
+                        ptRegMins += rMins;
                     }
                 }
             }
         }
-        double regHrsTotal      = minutesToHHMM(regHrsTotalMins);
-        double wkndHolHrsTotal  = minutesToHHMM(wkndHolHrsTotalMins);
-        double otHrsTotal       = minutesToHHMM(otHrsTotalMins);
-        double totHrsTotal      = minutesToHHMM(regHrsTotalMins + otHrsTotalMins);
 
-        // Weekend/Holiday count uses integer format; hours use decimal (0.00).
+        // ── Derived FT values ─────────────────────────────────────────────────
+        long   ftTotalOtMins  = ftWkdOtMins + ftWkndMins;
+        double ftRegHrs       = minutesToHHMM(ftRegMins);
+        double ftWkdOtHrs     = minutesToHHMM(ftWkdOtMins);  // Normal working-day OT hours
+        double ftWkndHrs      = minutesToHHMM(ftWkndMins);
+        double ftTotalOtHrs   = minutesToHHMM(ftTotalOtMins);
+        double ftTotalHrs     = minutesToHHMM(ftRegMins + ftTotalOtMins);
+
+        // ── Derived PT values ─────────────────────────────────────────────────
+        double ptRegHrs       = minutesToHHMM(ptRegMins); // weekday regular only
+        double ptWkndHrs      = minutesToHHMM(ptWkndMins);
+        double ptTotalHrs     = minutesToHHMM(ptRegMins + ptWkndMins);
+
+        // ── Combined totals ───────────────────────────────────────────────────
+        double combinedDays   = ftDaysLogged + ptDaysLogged;
+        double combinedHrs    = minutesToHHMM(ftRegMins + ftTotalOtMins + ptRegMins + ptWkndMins);
+
+        // ── Integer formats ───────────────────────────────────────────────────
         XSSFCellStyle sumValueWkndHolInt = cloneWithBg(workbook, sumValueStyle, wkndHrsBg);
         sumValueWkndHolInt.setDataFormat(df.getFormat("0"));
+        XSSFCellStyle sumValueDaysInt = cloneWithBg(workbook, sumValueStyle, daysLoggedBg);
+        sumValueDaysInt.setDataFormat(df.getFormat("0"));
 
-        // Summary rows: exactly 6 items as specified
-        putSummaryRow(sheet, sR+1, "Days logged",                          sumLabelDays, sumValueDays, null, daysLoggedCount);
-        putSummaryRow(sheet, sR+2, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt, null, wkndHolDaysCount);
-        putSummaryRow(sheet, sR+3, "Total regular Hours worked",           sumLabelReg,  sumValueReg,  null, regHrsTotal);
-        putSummaryRow(sheet, sR+4, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd, null, wkndHolHrsTotal);
-        putSummaryRow(sheet, sR+5, "Total OverTime Hours Worked",          sumLabelOt,   sumValueOt,   null, otHrsTotal);
-        putSummaryRow(sheet, sR+6, "Total Hours worked.",                 sumLabelTot,  sumValueTot,  null, totHrsTotal);
-        for (int r = sR+1; r <= sR+6; r++) sheet.addMergedRegion(new CellRangeAddress(r, r, 15, 17));
+        // Additional style: gold header for FT/PT section labels
+        XSSFColor goldColor = new XSSFColor(new byte[]{(byte)255, (byte)193, (byte)7}, null);
+        XSSFCellStyle sectionLabelStyle = workbook.createCellStyle();
+        { Font f = workbook.createFont(); f.setBold(true); f.setColor(IndexedColors.BLACK.getIndex());
+          f.setFontHeightInPoints((short)10); f.setFontName("Calibri"); sectionLabelStyle.setFont(f); }
+        sectionLabelStyle.setFillForegroundColor(goldColor);
+        sectionLabelStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        sectionLabelStyle.setAlignment(HorizontalAlignment.CENTER);
+        sectionLabelStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+        sectionLabelStyle.setBorderBottom(BorderStyle.THIN); sectionLabelStyle.setBorderTop(BorderStyle.THIN);
+        sectionLabelStyle.setBorderLeft(BorderStyle.THIN);  sectionLabelStyle.setBorderRight(BorderStyle.THIN);
+        XSSFColor blk = new XSSFColor(new byte[]{0,0,0}, null);
+        sectionLabelStyle.setBottomBorderColor(blk); sectionLabelStyle.setTopBorderColor(blk);
+        sectionLabelStyle.setLeftBorderColor(blk);   sectionLabelStyle.setRightBorderColor(blk);
+
+        // Combined-totals label style (teal-ish)
+        XSSFColor combinedBg = new XSSFColor(new byte[]{(byte)232, (byte)245, (byte)233}, null);
+        XSSFCellStyle sumLabelComb = cloneWithBg(workbook, sumLabelStyle, combinedBg);
+        XSSFCellStyle sumValueComb = cloneWithBg(workbook, sumValueStyle, combinedBg);
+
+        // ── Build summary rows starting at row 1 ──────────────────────────────
+        int sR = 1;
+
+        // ── MONTHLY SUMMARY header ────────────────────────────────────────────
+        Row sumHdr = sheet.getRow(sR); if (sumHdr == null) sumHdr = sheet.createRow(sR);
+        for (int i = 15; i <= 18; i++) { Cell c = sumHdr.createCell(i); c.setCellStyle(sumHeaderStyle); }
+        sumHdr.getCell(15).setCellValue("MONTHLY SUMMARY");
+        sheet.addMergedRegion(new CellRangeAddress(sR, sR, 15, 18));
+
+        int cur = sR + 1;
+
+        if (!isPartTime) {
+            // ─────────────── FULL TIME section ───────────────────────────────
+            // Section label
+            Row ftHdr = sheet.getRow(cur); if (ftHdr == null) ftHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 18; i++) { Cell c = ftHdr.createCell(i); c.setCellStyle(sectionLabelStyle); }
+            ftHdr.getCell(15).setCellValue("Full Time");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 18));
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Days logged",                          sumLabelDays, sumValueDaysInt,      null, ftDaysLogged);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt,   null, ftWkndDays);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total regular Hours worked",           sumLabelReg,  sumValueReg,           null, ftRegHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+
+            // OT Hours Worked sub-header: label (cols 15-17) + normal working-day OT value (col 18)
+            Row otHdr = sheet.getRow(cur); if (otHdr == null) otHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 17; i++) { Cell c = otHdr.createCell(i); c.setCellStyle(sumLabelOt); }
+            otHdr.getCell(15).setCellValue("OT Hours Worked");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 17));
+            Cell otHdrVal = otHdr.createCell(18); otHdrVal.setCellStyle(sumValueOt);
+            otHdrVal.setCellValue(ftWkdOtHrs);  // Normal working-day OT total
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd,          null, ftWkndHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total OverTime Hours Worked",          sumLabelOt,   sumValueOt,            null, ftTotalOtHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total Hours worked.",                  sumLabelTot,  sumValueTot,           null, ftTotalHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+
+            // Spacer
+            Row sp = sheet.getRow(cur); if (sp == null) sp = sheet.createRow(cur);
+            cur++;
+
+            // ─────────────── PART TIME section (placeholder / NA since this is FT emp) ─
+            Row ptHdr = sheet.getRow(cur); if (ptHdr == null) ptHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 18; i++) { Cell c = ptHdr.createCell(i); c.setCellStyle(sectionLabelStyle); }
+            ptHdr.getCell(15).setCellValue("Part Time");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 18));
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Days logged",                          sumLabelDays, sumValueDaysInt,      null, ptDaysLogged);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt,   null, ptWkndDays);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total regular Hours worked",           sumLabelReg,  sumValueReg,           null, ptRegHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd,          null, ptWkndHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total Hours worked.",                  sumLabelTot,  sumValueTot,           null, ptTotalHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+
+        } else {
+            // ─────────────── PART TIME section (primary) ─────────────────────
+            Row ptHdr = sheet.getRow(cur); if (ptHdr == null) ptHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 18; i++) { Cell c = ptHdr.createCell(i); c.setCellStyle(sectionLabelStyle); }
+            ptHdr.getCell(15).setCellValue("Part Time");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 18));
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Days logged",                          sumLabelDays, sumValueDaysInt,      null, ptDaysLogged);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt,   null, ptWkndDays);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total regular Hours worked",           sumLabelReg,  sumValueReg,           null, ptRegHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd,          null, ptWkndHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total Hours worked.",                  sumLabelTot,  sumValueTot,           null, ptTotalHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+
+            // Spacer
+            Row sp = sheet.getRow(cur); if (sp == null) sp = sheet.createRow(cur);
+            cur++;
+
+            // ─────────────── FULL TIME section (placeholder for PT emp) ──────
+            Row ftHdr = sheet.getRow(cur); if (ftHdr == null) ftHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 18; i++) { Cell c = ftHdr.createCell(i); c.setCellStyle(sectionLabelStyle); }
+            ftHdr.getCell(15).setCellValue("Full Time");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 18));
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Days logged",                          sumLabelDays, sumValueDaysInt,      null, ftDaysLogged);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Weekends/holidays worked",             sumLabelWknd, sumValueWkndHolInt,   null, ftWkndDays);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total regular Hours worked",           sumLabelReg,  sumValueReg,           null, ftRegHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+
+            Row otHdr = sheet.getRow(cur); if (otHdr == null) otHdr = sheet.createRow(cur);
+            for (int i = 15; i <= 17; i++) { Cell c = otHdr.createCell(i); c.setCellStyle(sumLabelOt); }
+            otHdr.getCell(15).setCellValue("OT Hours Worked");
+            sheet.addMergedRegion(new CellRangeAddress(cur, cur, 15, 17));
+            Cell otHdrVal2 = otHdr.createCell(18); otHdrVal2.setCellStyle(sumValueOt);
+            otHdrVal2.setCellValue(ftWkdOtHrs);  // Normal working-day OT total
+            cur++;
+
+            putSummaryRow(sheet, cur++, "Total weekends & Holiday hours worked",sumLabelWknd, sumValueWknd,          null, ftWkndHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total OverTime Hours Worked",          sumLabelOt,   sumValueOt,            null, ftTotalOtHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+            putSummaryRow(sheet, cur++, "Total Hours worked.",                  sumLabelTot,  sumValueTot,           null, ftTotalHrs);
+            sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+        }
+
+        // Spacer before combined totals
+        Row sp2 = sheet.getRow(cur); if (sp2 == null) sp2 = sheet.createRow(cur);
+        cur++;
+
+        // ── Combined FT/PT Totals ─────────────────────────────────────────────
+        putSummaryRow(sheet, cur++, "Total FT/PT Days Logged",              sumLabelComb, sumValueComb,          null, combinedDays);
+        sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
+        putSummaryRow(sheet, cur++, "Total FT/PT Hours worked.",            sumLabelComb, sumValueComb,          null, combinedHrs);
+        sheet.addMergedRegion(new CellRangeAddress(cur-1, cur-1, 15, 17));
 
         // â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         int footerIdx = totIdx + 2;
@@ -631,7 +817,10 @@ public class ExcelExportController {
         for (int i = 0; i < colWidths.length; i++) {
             sheet.setColumnWidth(i, colWidths[i]);
         }
-        sheet.createFreezePane(0, 7);
+        // Freeze pane: cols 0-14 (left, always visible) + rows 0-6 (top, always visible).
+        // This splits vertically before column 15 (summary table) and horizontally below row 6 (headers).
+        // The timesheet data (rows 7+) scrolls vertically freely, while the headers remain visible.
+        sheet.createFreezePane(15, 7);
     }
 
     /** Clone a CellStyle, replacing only its fill colour */
