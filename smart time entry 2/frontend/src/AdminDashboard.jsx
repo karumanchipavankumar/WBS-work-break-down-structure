@@ -128,6 +128,7 @@ const getDisplayCountry = (country) => {
   if (!country) return 'N/A';
   if (country.includes('IN') || country.includes('India') || country.includes('+91')) return 'India';
   if (country.includes('JP') || country.includes('Japan') || country.includes('+81')) return 'Japan';
+  if (country.includes('SG') || country.includes('Singapore') || country.includes('+65')) return 'Singapore';
   return country;
 };
 
@@ -136,12 +137,13 @@ const getDisplayContactNumber = (contactNumber, country) => {
   if (contactNumber.includes(' | ')) {
     const parts = contactNumber.split(' | ');
     const codePart = parts[0];
-    const numPart = parts[1];
-    const code = codePart.includes('+91') ? '+91' : (codePart.includes('+81') ? '+81' : codePart);
+    const numPart = parts.length > 1 ? parts[1] : '';
+    if (numPart.trim().length === 0) return 'N/A';
+    const code = codePart.includes('+91') ? '+91' : (codePart.includes('+81') ? '+81' : (codePart.includes('+65') ? '+65' : codePart));
     return `${code} ${numPart}`;
   }
   if (country) {
-    const code = country.includes('+91') ? '+91' : (country.includes('+81') ? '+81' : '');
+    const code = country.includes('+91') ? '+91' : (country.includes('+81') ? '+81' : (country.includes('+65') ? '+65' : ''));
     if (code) {
       return `${code} ${contactNumber}`;
     }
@@ -443,16 +445,19 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       errors.country = 'Please select a country.';
     }
 
-    if (!profileEditData.contactNumber || profileEditData.contactNumber.trim().length === 0) {
-      errors.contactNumber = 'Please enter a contact number.';
-    } else {
+    if (profileEditData.contactNumber && profileEditData.contactNumber.trim().length > 0) {
+      const val = profileEditData.contactNumber.trim();
       if (profileEditData.country === 'India (+91)' || profileEditData.country === 'IN (+91)') {
-        if (!/^\d{10}$/.test(profileEditData.contactNumber)) {
+        if (!/^\d{10}$/.test(val)) {
           errors.contactNumber = 'Please enter a valid 10-digit mobile number.';
         }
       } else if (profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)') {
-        if (!/^\d{11}$/.test(profileEditData.contactNumber)) {
-          errors.contactNumber = 'Please enter a valid 11-digit mobile number.';
+        if (!/^\d{10,11}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 10 or 11-digit mobile number.';
+        }
+      } else if (profileEditData.country === 'Singapore (+65)' || profileEditData.country === 'SG (+65)') {
+        if (!/^\d{8}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 8-digit mobile number.';
         }
       }
     }
@@ -896,16 +901,19 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
     }
 
     // Contact number validation
-    if (!newEmp.contactNumber || newEmp.contactNumber.trim().length === 0) {
-      errors.contactNumber = 'Please enter a contact number.';
-    } else {
+    if (newEmp.contactNumber && newEmp.contactNumber.trim().length > 0) {
+      const val = newEmp.contactNumber.trim();
       if (newEmp.country === 'India (+91)' || newEmp.country === 'IN (+91)') {
-        if (!/^\d{10}$/.test(newEmp.contactNumber)) {
+        if (!/^\d{10}$/.test(val)) {
           errors.contactNumber = 'Please enter a valid 10-digit mobile number.';
         }
       } else if (newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)') {
-        if (!/^\d{11}$/.test(newEmp.contactNumber)) {
-          errors.contactNumber = 'Please enter a valid 11-digit mobile number.';
+        if (!/^\d{10,11}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 10 or 11-digit mobile number.';
+        }
+      } else if (newEmp.country === 'Singapore (+65)' || newEmp.country === 'SG (+65)') {
+        if (!/^\d{8}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 8-digit mobile number.';
         }
       }
     }
@@ -919,12 +927,10 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       errors.empType = 'Please select an employee type.';
     }
 
-    // Part Time Duration (only if employee type is Part time)
-    if (newEmp.empType === 'Part time') {
+    // Part Time Duration (only if employee type is Part time and durationValue is filled)
+    if (newEmp.empType === 'Part time' && durationValue && durationValue.trim().length > 0) {
       const num = Number(durationValue);
-      if (!durationValue || durationValue.trim().length === 0) {
-        errors.partTimeDuration = 'Duration number is mandatory.';
-      } else if (isNaN(num) || num <= 0 || !Number.isInteger(num)) {
+      if (isNaN(num) || num <= 0 || !Number.isInteger(num)) {
         errors.partTimeDuration = 'Only positive whole numbers are allowed.';
       }
     }
@@ -1020,10 +1026,16 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
       delete payload.emailDomain;
 
       if (newEmp.empType === 'Part time') {
-        payload.durationValue = parseInt(durationValue.trim(), 10);
-        payload.durationUnit = durationUnit;
-        const unitLabel = durationUnit === 'DAYS' ? 'Days' : durationUnit === 'YEARS' ? 'Years' : 'Months';
-        payload.partTimeDuration = durationValue.trim() + " " + unitLabel;
+        if (durationValue && durationValue.trim() !== '') {
+          payload.durationValue = parseInt(durationValue.trim(), 10);
+          payload.durationUnit = durationUnit;
+          const unitLabel = durationUnit === 'DAYS' ? 'Days' : durationUnit === 'YEARS' ? 'Years' : 'Months';
+          payload.partTimeDuration = durationValue.trim() + " " + unitLabel;
+        } else {
+          payload.durationValue = null;
+          payload.durationUnit = null;
+          payload.partTimeDuration = null;
+        }
       } else {
         payload.durationValue = null;
         payload.durationUnit = null;
@@ -2094,7 +2106,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                 </div>
 
                 <div className="form-group" style={{ flex: 1.2 }}>
-                  <label className="form-label">CONTACT NUMBER <span style={{ color: '#e11d48' }}>*</span></label>
+                  <label className="form-label">CONTACT NUMBER</label>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <select
                       id="country"
@@ -2117,11 +2129,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                       <option value="">Code</option>
                       <option value="IN (+91)">IN (+91)</option>
                       <option value="JP (+81)">JP (+81)</option>
+                      <option value="SG (+65)">SG (+65)</option>
                     </select>
                     <input
                       id="contactNumber"
                       name="contactNumber"
-                      maxLength={newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)' ? 11 : 10}
+                      maxLength={newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)' ? 11 : (newEmp.country === 'Singapore (+65)' || newEmp.country === 'SG (+65)' ? 8 : 10)}
                       disabled={isSubmitting}
                       className={`form-input ${formErrors.contactNumber ? 'invalid' : ''}`}
                       style={{ flex: 1 }}
@@ -2132,12 +2145,16 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                         const val = e.target.value.replace(/[^0-9]/g, ''); // numeric only
                         setNewEmp({ ...newEmp, contactNumber: val });
                         setContactDuplicateError('');
-                        if (!val) {
-                          setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a contact number.' }));
-                        } else if ((newEmp.country === 'India (+91)' || newEmp.country === 'IN (+91)') && val.length !== 10) {
-                          setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10-digit mobile number.' }));
-                        } else if ((newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)') && val.length !== 11) {
-                          setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 11-digit mobile number.' }));
+                        if (val) {
+                          if ((newEmp.country === 'India (+91)' || newEmp.country === 'IN (+91)') && val.length !== 10) {
+                            setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10-digit mobile number.' }));
+                          } else if ((newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)') && val.length !== 10 && val.length !== 11) {
+                            setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10 or 11-digit mobile number.' }));
+                          } else if ((newEmp.country === 'Singapore (+65)' || newEmp.country === 'SG (+65)') && val.length !== 8) {
+                            setFormErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 8-digit mobile number.' }));
+                          } else {
+                            setFormErrors(prev => ({ ...prev, contactNumber: '' }));
+                          }
                         } else {
                           setFormErrors(prev => ({ ...prev, contactNumber: '' }));
                         }
@@ -2151,8 +2168,9 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                         const val = e.target.value.replace(/[^0-9]/g, '');
                         // Only check uniqueness if the format is valid
                         const validLen = (newEmp.country === 'India (+91)' || newEmp.country === 'IN (+91)') ? 10
-                          : (newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)') ? 11 : null;
-                        if (val && (validLen === null || val.length === validLen)) {
+                          : (newEmp.country === 'Japan (+81)' || newEmp.country === 'JP (+81)') ? 11
+                          : (newEmp.country === 'Singapore (+65)' || newEmp.country === 'SG (+65)') ? 8 : null;
+                        if (val && (validLen === null || val.length === validLen || (validLen === 11 && val.length === 10))) {
                           await checkContactUniqueness(val);
                         }
                       }}
@@ -2194,7 +2212,7 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
 
                 {newEmp.empType === 'Part time' ? (
                   <div className="form-group" style={{ flex: 1.2 }}>
-                    <label className="form-label">PART TIME DURATION <span style={{ color: '#e11d48' }}>*</span></label>
+                    <label className="form-label">PART TIME DURATION</label>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <input
                         type="number"
@@ -2223,10 +2241,12 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                           
                           // Validate inline
                           const num = Number(val);
-                          if (!val || val.trim().length === 0) {
-                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Duration is required.' }));
-                          } else if (num <= 0) {
-                            setFormErrors(prev => ({ ...prev, partTimeDuration: 'Only positive whole numbers are allowed.' }));
+                          if (val && val.trim().length > 0) {
+                            if (num <= 0) {
+                              setFormErrors(prev => ({ ...prev, partTimeDuration: 'Only positive whole numbers are allowed.' }));
+                            } else {
+                              setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
+                            }
                           } else {
                             setFormErrors(prev => ({ ...prev, partTimeDuration: '' }));
                           }
@@ -3496,16 +3516,17 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     <option value="">Select Country</option>
                     <option value="IN (+91)">IN (+91)</option>
                     <option value="JP (+81)">JP (+81)</option>
+                    <option value="SG (+65)">SG (+65)</option>
                   </select>
                   {profileEditErrors.country && <span style={{ color: '#d32f2f', fontSize: '11px', display: 'block', marginTop: '4px' }}>{profileEditErrors.country}</span>}
                 </div>
 
                 {/* Contact Number */}
                 <div>
-                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Number <span style={{ color: '#e11d48' }}>*</span></label>
+                  <label className="form-label" style={{ fontSize: '9.5px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Number</label>
                   <input
                     type="text"
-                    maxLength={profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)' ? 11 : 10}
+                    maxLength={profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)' ? 11 : (profileEditData.country === 'Singapore (+65)' || profileEditData.country === 'SG (+65)' ? 8 : 10)}
                     disabled={isProfileSaving}
                     className={`form-input ${profileEditErrors.contactNumber ? 'invalid' : ''}`}
                     placeholder="Enter Number"
@@ -3513,12 +3534,16 @@ export default function AdminDashboard({ selectedEmployee, onSelectEmployee }) {
                     onChange={e => {
                       const val = e.target.value.replace(/[^0-9]/g, '');
                       setProfileEditData({ ...profileEditData, contactNumber: val });
-                      if (!val) {
-                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a contact number.' }));
-                      } else if ((profileEditData.country === 'India (+91)' || profileEditData.country === 'IN (+91)') && val.length !== 10) {
-                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a 10-digit number.' }));
-                      } else if ((profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)') && val.length !== 11) {
-                        setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter an 11-digit number.' }));
+                      if (val) {
+                        if ((profileEditData.country === 'India (+91)' || profileEditData.country === 'IN (+91)') && val.length !== 10) {
+                          setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a 10-digit number.' }));
+                        } else if ((profileEditData.country === 'Japan (+81)' || profileEditData.country === 'JP (+81)') && val.length !== 10 && val.length !== 11) {
+                          setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter a 10 or 11-digit number.' }));
+                        } else if ((profileEditData.country === 'Singapore (+65)' || profileEditData.country === 'SG (+65)') && val.length !== 8) {
+                          setProfileEditErrors(prev => ({ ...prev, contactNumber: 'Please enter an 8-digit number.' }));
+                        } else {
+                          setProfileEditErrors(prev => ({ ...prev, contactNumber: '' }));
+                        }
                       } else {
                         setProfileEditErrors(prev => ({ ...prev, contactNumber: '' }));
                       }

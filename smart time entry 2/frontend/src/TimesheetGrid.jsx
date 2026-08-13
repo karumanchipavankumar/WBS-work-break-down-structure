@@ -723,16 +723,19 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     }
 
     // Contact number validation
-    if (!profileData.contactNumber || profileData.contactNumber.trim().length === 0) {
-      errors.contactNumber = 'Please enter a contact number.';
-    } else {
+    if (profileData.contactNumber && profileData.contactNumber.trim().length > 0) {
+      const val = profileData.contactNumber.trim();
       if (profileData.country === 'India (+91)' || profileData.country === 'IN (+91)') {
-        if (!/^\d{10}$/.test(profileData.contactNumber)) {
+        if (!/^\d{10}$/.test(val)) {
           errors.contactNumber = 'Please enter a valid 10-digit mobile number.';
         }
       } else if (profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)') {
-        if (!/^\d{11}$/.test(profileData.contactNumber)) {
-          errors.contactNumber = 'Please enter a valid 11-digit mobile number.';
+        if (!/^\d{10,11}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 10 or 11-digit mobile number.';
+        }
+      } else if (profileData.country === 'Singapore (+65)' || profileData.country === 'SG (+65)') {
+        if (!/^\d{8}$/.test(val)) {
+          errors.contactNumber = 'Please enter a valid 8-digit mobile number.';
         }
       }
     }
@@ -4585,7 +4588,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                     </div>
 
                     <div className="form-group" style={{ flex: 1.2 }}>
-                      <label className="form-label">CONTACT NUMBER <span style={{color:'#e11d48'}}>*</span></label>
+                      <label className="form-label">CONTACT NUMBER</label>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                         <select 
                           id="profile-country"
@@ -4608,11 +4611,12 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                           <option value="">Code</option>
                           <option value="IN (+91)">IN (+91)</option>
                           <option value="JP (+81)">JP (+81)</option>
+                          <option value="SG (+65)">SG (+65)</option>
                         </select>
                         <input 
                           id="profile-contactNumber"
                           name="profile-contactNumber"
-                          maxLength={profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)' ? 11 : 10}
+                          maxLength={profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)' ? 11 : (profileData.country === 'Singapore (+65)' || profileData.country === 'SG (+65)' ? 8 : 10)}
                           disabled={isSavingProfile}
                           className={`form-input ${profileErrors.contactNumber ? 'invalid' : ''}`} 
                           style={{ flex: 1 }}
@@ -4623,12 +4627,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                             const val = e.target.value.replace(/[^0-9]/g, ''); // numeric only
                             setProfileData({ ...profileData, contactNumber: val });
                             setContactDuplicateErrorProfile('');
-                            if (!val) {
-                              setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a contact number.' }));
-                            } else if ((profileData.country === 'India (+91)' || profileData.country === 'IN (+91)') && val.length !== 10) {
-                              setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10-digit mobile number.' }));
-                            } else if ((profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)') && val.length !== 11) {
-                              setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 11-digit mobile number.' }));
+                            if (val) {
+                              if ((profileData.country === 'India (+91)' || profileData.country === 'IN (+91)') && val.length !== 10) {
+                                setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10-digit mobile number.' }));
+                              } else if ((profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)') && val.length !== 10 && val.length !== 11) {
+                                setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 10 or 11-digit mobile number.' }));
+                              } else if ((profileData.country === 'Singapore (+65)' || profileData.country === 'SG (+65)') && val.length !== 8) {
+                                setProfileErrors(prev => ({ ...prev, contactNumber: 'Please enter a valid 8-digit mobile number.' }));
+                              } else {
+                                setProfileErrors(prev => ({ ...prev, contactNumber: '' }));
+                              }
                             } else {
                               setProfileErrors(prev => ({ ...prev, contactNumber: '' }));
                             }
@@ -4642,8 +4650,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                             const val = e.target.value.replace(/[^0-9]/g, '');
                             // Only check uniqueness if format is valid
                             const validLen = (profileData.country === 'India (+91)' || profileData.country === 'IN (+91)') ? 10
-                              : (profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)') ? 11 : null;
-                            if (val && (validLen === null || val.length === validLen)) {
+                              : (profileData.country === 'Japan (+81)' || profileData.country === 'JP (+81)') ? 11
+                              : (profileData.country === 'Singapore (+65)' || profileData.country === 'SG (+65)') ? 8 : null;
+                            if (val && (validLen === null || val.length === validLen || (validLen === 11 && val.length === 10))) {
                               await checkContactProfileUniqueness(val, employee?.id);
                             }
                           }}

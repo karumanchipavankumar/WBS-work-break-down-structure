@@ -359,7 +359,8 @@ public class AdminController {
             return ResponseEntity.badRequest().body("Please select a country.");
         }
         if (!"India (+91)".equals(country) && !"Japan (+81)".equals(country) &&
-            !"IN (+91)".equals(country) && !"JP (+81)".equals(country)) {
+            !"IN (+91)".equals(country) && !"JP (+81)".equals(country) &&
+            !"Singapore (+65)".equals(country) && !"SG (+65)".equals(country)) {
             notifyEmpCreationFailure(name, empId, "Please select a valid country.");
             return ResponseEntity.badRequest().body("Please select a valid country.");
         }
@@ -373,50 +374,54 @@ public class AdminController {
             return ResponseEntity.badRequest().body("Please select a valid employee type.");
         }
         if ("Part time".equalsIgnoreCase(empType)) {
-            if (durationValue == null) {
-                notifyEmpCreationFailure(name, empId, "Duration value is mandatory.");
-                return ResponseEntity.badRequest().body("Duration value is mandatory.");
+            if (durationValue != null) {
+                if (durationValue <= 0) {
+                    notifyEmpCreationFailure(name, empId, "Duration value must be a positive number.");
+                    return ResponseEntity.badRequest().body("Duration value must be a positive number.");
+                }
+                if (durationUnit == null || durationUnit.trim().isEmpty()) {
+                    notifyEmpCreationFailure(name, empId, "Duration unit is mandatory.");
+                    return ResponseEntity.badRequest().body("Duration unit is mandatory.");
+                }
+                String unitUpper = durationUnit.trim().toUpperCase();
+                if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
+                    notifyEmpCreationFailure(name, empId, "Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+                    return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+                }
+                String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
+                partTimeDuration = durationValue + " " + unitLabel;
+            } else {
+                durationUnit = null;
+                partTimeDuration = null;
             }
-            if (durationValue <= 0) {
-                notifyEmpCreationFailure(name, empId, "Duration value must be a positive number.");
-                return ResponseEntity.badRequest().body("Duration value must be a positive number.");
-            }
-            if (durationUnit == null || durationUnit.trim().isEmpty()) {
-                notifyEmpCreationFailure(name, empId, "Duration unit is mandatory.");
-                return ResponseEntity.badRequest().body("Duration unit is mandatory.");
-            }
-            String unitUpper = durationUnit.trim().toUpperCase();
-            if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
-                notifyEmpCreationFailure(name, empId, "Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
-                return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
-            }
-            String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
-            partTimeDuration = durationValue + " " + unitLabel;
         } else {
             durationValue = null;
             durationUnit = null;
             partTimeDuration = null;
         }
 
-        // Contact Number Validation
-        if (contactNumber == null || contactNumber.isEmpty()) {
-            notifyEmpCreationFailure(name, empId, "Please enter a contact number.");
-            return ResponseEntity.badRequest().body("Please enter a contact number.");
-        }
-        
-        String rawNumber = extractRawNumber(contactNumber);
-        
-        if (country.contains("+91")) {
-            if (rawNumber.length() != 10 || !rawNumber.matches("^\\d{10}$")) {
-                notifyEmpCreationFailure(name, empId, "Please enter a valid 10-digit mobile number.");
-                return ResponseEntity.badRequest().body("Please enter a valid 10-digit mobile number.");
+        // Contact Number Validation (Optional)
+        String rawNumber = (contactNumber != null) ? extractRawNumber(contactNumber) : "";
+        if (!rawNumber.isEmpty()) {
+            if (country.contains("+91")) {
+                if (rawNumber.length() != 10 || !rawNumber.matches("^\\d{10}$")) {
+                    notifyEmpCreationFailure(name, empId, "Please enter a valid 10-digit mobile number.");
+                    return ResponseEntity.badRequest().body("Please enter a valid 10-digit mobile number.");
+                }
+            } else if (country.contains("+81")) {
+                if (rawNumber.length() != 10 && rawNumber.length() != 11 || !rawNumber.matches("^\\d{10,11}$")) {
+                    notifyEmpCreationFailure(name, empId, "Please enter a valid 10 or 11-digit mobile number.");
+                    return ResponseEntity.badRequest().body("Please enter a valid 10 or 11-digit mobile number.");
+                }
+            } else if (country.contains("+65")) {
+                if (rawNumber.length() != 8 || !rawNumber.matches("^\\d{8}$")) {
+                    notifyEmpCreationFailure(name, empId, "Please enter a valid 8-digit mobile number.");
+                    return ResponseEntity.badRequest().body("Please enter a valid 8-digit mobile number.");
+                }
             }
-        } else if (country.contains("+81")) {
-            if (rawNumber.length() != 11 || !rawNumber.matches("^\\d{11}$")) {
-                notifyEmpCreationFailure(name, empId, "Please enter a valid 11-digit mobile number.");
-                return ResponseEntity.badRequest().body("Please enter a valid 11-digit mobile number.");
-            }
         }
+
+
         
         // Email Validation
         String rawEmail = employee.getEmail();
@@ -545,22 +550,23 @@ public class AdminController {
         }
 
         // Contact number uniqueness check
-        String rawNumberForCheck = extractRawNumber(contactNumber);
-        java.util.List<User> existingWithContact = userRepository.findByContactNumberContaining(rawNumberForCheck);
-        boolean isDuplicate = false;
-        for (User existing : existingWithContact) {
-            if (isDuplicateContact(contactNumber, country, existing.getContactNumber())) {
-                isDuplicate = true;
-                break;
+        if (!rawNumber.isEmpty()) {
+            java.util.List<User> existingWithContact = userRepository.findByContactNumberContaining(rawNumber);
+            boolean isDuplicate = false;
+            for (User existing : existingWithContact) {
+                if (isDuplicateContact(contactNumber, country, existing.getContactNumber())) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if (isDuplicate) {
+                notifyEmpCreationFailure(name, empId, "This contact number is already registered.");
+                return ResponseEntity.badRequest().body("This contact number is already registered.");
             }
         }
-        if (isDuplicate) {
-            notifyEmpCreationFailure(name, empId, "This contact number is already registered.");
-            return ResponseEntity.badRequest().body("This contact number is already registered.");
-        }
 
-        String countryCode = country.contains("+91") ? "IN (+91)" : "JP (+81)";
-        String finalContactNumber = countryCode + " | " + extractRawNumber(contactNumber);
+        String countryCode = country.contains("+91") ? "IN (+91)" : (country.contains("+81") ? "JP (+81)" : (country.contains("+65") ? "SG (+65)" : country));
+        String finalContactNumber = rawNumber.isEmpty() ? null : countryCode + " | " + rawNumber;
 
         employee.setEmpId(empId);
         employee.setEmail(email);
@@ -846,55 +852,29 @@ public class AdminController {
                 empType = user.getEmpType() != null ? user.getEmpType() : "Full time";
             }
             if ("Part time".equalsIgnoreCase(empType)) {
-                if (durationValue == null) {
-                    durationValue = user.getDurationValue();
-                    if (durationValue == null && user.getPartTimeDuration() != null) {
-                        String digits = user.getPartTimeDuration().replaceAll("\\D", "");
-                        if (!digits.isEmpty()) {
-                            try {
-                                durationValue = Integer.parseInt(digits);
-                            } catch (NumberFormatException e) {
-                                durationValue = 3;
-                            }
-                        } else {
-                            durationValue = 3;
-                        }
+                if (durationValue != null) {
+                    if (durationValue <= 0) {
+                        return ResponseEntity.badRequest().body("Duration value must be a positive number.");
+                    }
+                    if (durationUnit == null || durationUnit.isEmpty()) {
+                        return ResponseEntity.badRequest().body("Duration unit is mandatory.");
+                    }
+                    String unitUpper = durationUnit.trim().toUpperCase();
+                    if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
+                        return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
+                    }
+                    String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
+                    partTimeDuration = durationValue + " " + unitLabel;
+                } else {
+                    if (user.getDurationValue() != null) {
+                        durationValue = user.getDurationValue();
+                        durationUnit = user.getDurationUnit();
+                        partTimeDuration = user.getPartTimeDuration();
+                    } else {
+                        durationUnit = null;
+                        partTimeDuration = null;
                     }
                 }
-                if (durationUnit == null) {
-                    durationUnit = user.getDurationUnit() != null ? user.getDurationUnit().trim().toUpperCase() : null;
-                    if (durationUnit == null && user.getPartTimeDuration() != null) {
-                        String lower = user.getPartTimeDuration().toLowerCase();
-                        if (lower.contains("day")) {
-                            durationUnit = "DAYS";
-                        } else if (lower.contains("year")) {
-                            durationUnit = "YEARS";
-                        } else {
-                            durationUnit = "MONTHS";
-                        }
-                    }
-                }
-            }
-
-            if (!"Full time".equalsIgnoreCase(empType) && !"Part time".equalsIgnoreCase(empType)) {
-                return ResponseEntity.badRequest().body("Please select a valid employee type.");
-            }
-            if ("Part time".equalsIgnoreCase(empType)) {
-                if (durationValue == null) {
-                    return ResponseEntity.badRequest().body("Duration value is mandatory.");
-                }
-                if (durationValue <= 0) {
-                    return ResponseEntity.badRequest().body("Duration value must be a positive number.");
-                }
-                if (durationUnit == null || durationUnit.isEmpty()) {
-                    return ResponseEntity.badRequest().body("Duration unit is mandatory.");
-                }
-                String unitUpper = durationUnit.trim().toUpperCase();
-                if (!"DAYS".equals(unitUpper) && !"MONTHS".equals(unitUpper) && !"YEARS".equals(unitUpper)) {
-                    return ResponseEntity.badRequest().body("Invalid duration unit. Supported values are: DAYS, MONTHS, YEARS.");
-                }
-                String unitLabel = "DAYS".equals(unitUpper) ? "Days" : ("YEARS".equals(unitUpper) ? "Years" : "Months");
-                partTimeDuration = durationValue + " " + unitLabel;
             } else {
                 durationValue = null;
                 durationUnit = null;
@@ -955,22 +935,26 @@ public class AdminController {
                 return ResponseEntity.badRequest().body("Please select a country.");
             }
             if (!"India (+91)".equals(country) && !"Japan (+81)".equals(country) &&
-                !"IN (+91)".equals(country) && !"JP (+81)".equals(country)) {
+                !"IN (+91)".equals(country) && !"JP (+81)".equals(country) &&
+                !"Singapore (+65)".equals(country) && !"SG (+65)".equals(country)) {
                 return ResponseEntity.badRequest().body("Please select a valid country.");
             }
-            if (contactNumber == null || contactNumber.isEmpty()) {
-                return ResponseEntity.badRequest().body("Please enter a contact number.");
-            }
             
-            String rawNumber = extractRawNumber(contactNumber);
+            String rawNumber = (contactNumber != null) ? extractRawNumber(contactNumber) : "";
 
-            if (country.contains("+91")) {
-                if (rawNumber.length() != 10 || !rawNumber.matches("^\\d{10}$")) {
-                    return ResponseEntity.badRequest().body("Please enter a valid 10-digit mobile number.");
-                }
-            } else if (country.contains("+81")) {
-                if (rawNumber.length() != 11 || !rawNumber.matches("^\\d{11}$")) {
-                    return ResponseEntity.badRequest().body("Please enter a valid 11-digit mobile number.");
+            if (!rawNumber.isEmpty()) {
+                if (country.contains("+91")) {
+                    if (rawNumber.length() != 10 || !rawNumber.matches("^\\d{10}$")) {
+                        return ResponseEntity.badRequest().body("Please enter a valid 10-digit mobile number.");
+                    }
+                } else if (country.contains("+81")) {
+                    if (rawNumber.length() != 10 && rawNumber.length() != 11 || !rawNumber.matches("^\\d{10,11}$")) {
+                        return ResponseEntity.badRequest().body("Please enter a valid 10 or 11-digit mobile number.");
+                    }
+                } else if (country.contains("+65")) {
+                    if (rawNumber.length() != 8 || !rawNumber.matches("^\\d{8}$")) {
+                        return ResponseEntity.badRequest().body("Please enter a valid 8-digit mobile number.");
+                    }
                 }
             }
             
@@ -997,19 +981,20 @@ public class AdminController {
             }
 
             // Uniqueness check for contact number (excluding current user)
-            String rawNumCheck = extractRawNumber(contactNumber);
-            java.util.List<User> contactMatches = userRepository.findByContactNumberContaining(rawNumCheck);
-            boolean isDuplicateUpdate = false;
-            for (User match : contactMatches) {
-                if (!match.getId().equals(id)) {
-                    if (isDuplicateContact(contactNumber, country, match.getContactNumber())) {
-                        isDuplicateUpdate = true;
-                        break;
+            if (!rawNumber.isEmpty()) {
+                java.util.List<User> contactMatches = userRepository.findByContactNumberContaining(rawNumber);
+                boolean isDuplicateUpdate = false;
+                for (User match : contactMatches) {
+                    if (!match.getId().equals(id)) {
+                        if (isDuplicateContact(contactNumber, country, match.getContactNumber())) {
+                            isDuplicateUpdate = true;
+                            break;
+                        }
                     }
                 }
-            }
-            if (isDuplicateUpdate) {
-                return ResponseEntity.badRequest().body("This contact number is already registered.");
+                if (isDuplicateUpdate) {
+                    return ResponseEntity.badRequest().body("This contact number is already registered.");
+                }
             }
 
             // Update user properties & track changes
@@ -1023,8 +1008,8 @@ public class AdminController {
             boolean companyChanged = !user.getCompanyName().equals(companyName);
             boolean deptChanged = !user.getDept().equals(dept);
             boolean joiningDateChanged = !user.getDateOfJoining().equals(dateOfJoining);
-            String countryCode = country.contains("+91") ? "IN (+91)" : "JP (+81)";
-            String finalContactNumber = countryCode + " | " + extractRawNumber(contactNumber);
+            String countryCode = country.contains("+91") ? "IN (+91)" : (country.contains("+81") ? "JP (+81)" : (country.contains("+65") ? "SG (+65)" : country));
+            String finalContactNumber = rawNumber.isEmpty() ? null : countryCode + " | " + rawNumber;
 
             boolean countryChanged = (user.getCountry() == null && country != null) || (user.getCountry() != null && !user.getCountry().equals(countryCode));
             boolean contactChanged = (user.getContactNumber() == null && finalContactNumber != null) || (user.getContactNumber() != null && !user.getContactNumber().equals(finalContactNumber));
@@ -1242,7 +1227,7 @@ public class AdminController {
         // Format new country code
         String newCountryCode = "";
         if (newCountry != null && !newCountry.trim().isEmpty()) {
-            newCountryCode = newCountry.contains("+91") ? "IN (+91)" : (newCountry.contains("+81") ? "JP (+81)" : newCountry.trim());
+            newCountryCode = newCountry.contains("+91") ? "IN (+91)" : (newCountry.contains("+81") ? "JP (+81)" : (newCountry.contains("+65") ? "SG (+65)" : newCountry.trim()));
         } else if (newContact.contains(" | ")) {
             String[] parts = newContact.split(" \\| ");
             if (parts.length > 0) {
