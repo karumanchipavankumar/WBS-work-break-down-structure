@@ -44,6 +44,9 @@ public class TimesheetEntry {
     @Column(name = "short_hours_reason", length = 3000)
     private String shortHoursReason;
 
+    @Column(name = "task_details", length = 3000)
+    private String taskDetails;
+
     // OT Fields
     @Column(name = "ot_status")
     private String otStatus;

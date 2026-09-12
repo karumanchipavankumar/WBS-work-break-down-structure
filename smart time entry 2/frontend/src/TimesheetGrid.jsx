@@ -43,6 +43,24 @@ const validateAndCleanReason = (text, fieldName = 'Reason') => {
   return { isValid: true, cleaned, error: '' };
 };
 
+const getDisplayTaskAndShortReason = (taskDetails, shortHoursReason, fallbackReason) => {
+  const task = (taskDetails || '').trim();
+  const short = (shortHoursReason || '').trim();
+  const fallback = (fallbackReason || '').trim();
+
+  if (task && short && task !== short) {
+    return { displayTask: task, displayShortReason: short };
+  } else if (task) {
+    return { displayTask: task, displayShortReason: '' };
+  } else if (short) {
+    // Legacy record: single reason field stored task details
+    return { displayTask: short, displayShortReason: '' };
+  } else if (fallback) {
+    return { displayTask: fallback, displayShortReason: '' };
+  }
+  return { displayTask: '', displayShortReason: '' };
+};
+
 const isPastDeadline = (dateStr) => {
   if (!dateStr) return false;
   const parts = dateStr.split('-');
@@ -451,7 +469,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [rejectionReasons, setRejectionReasons] = useState({});
   
   const [otModal, setOtModal] = useState({ isOpen: false, dateStr: '', otHours: '', reason: '', remarks: '', entryId: null, status: '', rejectionReason: '', clientApproved: false, clientApprovalFile: '', isReapply: false, otReapplyCount: 0, oldReason: '', isNewReasonVisible: false, hasError: false });
-  const [rejectModal, setRejectModal] = useState({ isOpen: false, entryId: null, dateStr: '', isOT: false, reason: '', hasError: false });
+  const [rejectModal, setRejectModal] = useState({ isOpen: false, entryId: null, dateStr: '', isOT: false, reason: '', readReasonChecked: false, hasError: false });
   const [grantModal, setGrantModal] = useState({ isOpen: false, entryId: null, dateStr: '', message: 'Granted access for Resubmit OT application', hasError: false });
   const [reasonViewModal, setReasonViewModal] = useState({ isOpen: false, reason: '', title: '' });
   const [leaveResubmitStage, setLeaveResubmitStage] = useState('initial');
@@ -462,7 +480,18 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [processingMessage, setProcessingMessage] = useState(null);
   const [toast, setToast] = useState({ type: '', text: '' });
-  
+
+  // Task Details Modal States
+  const [isTaskDetailsModalOpen, setIsTaskDetailsModalOpen] = useState(false);
+  const [taskDetailsModalData, setTaskDetailsModalData] = useState(null); // { dateStr, row }
+  const [taskDetailsText, setTaskDetailsText] = useState('');
+  const [taskDetailsError, setTaskDetailsError] = useState('');
+
+  // Admin Accept Modal States
+  const [isAdminAcceptModalOpen, setIsAdminAcceptModalOpen] = useState(false);
+  const [adminAcceptModalData, setAdminAcceptModalData] = useState(null); // { id, dateStr, row }
+  const [readReasonAcceptChecked, setReadReasonAcceptChecked] = useState(false);
+
   // Short Hours Approval Workflow Modal States
   const [isShortHoursModalOpen, setIsShortHoursModalOpen] = useState(false);
   const [shortHoursModalData, setShortHoursModalData] = useState(null); // { date, timings, hours, isReadOnly, oldReason }
@@ -474,6 +503,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
   const [adminRejectionText, setAdminRejectionText] = useState('');
   const [isAdminRejectMode, setIsAdminRejectMode] = useState(false);
   const [adminShortHoursError, setAdminShortHoursError] = useState('');
+  const [adminShortHoursReadReasonChecked, setAdminShortHoursReadReasonChecked] = useState(false);
   
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileData, setProfileData] = useState({
@@ -1180,13 +1210,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
       const isAllEmptyOrZero = isAmInEmpty && isAmOutEmpty && isPmInEmpty && isPmOutEmpty;
 
-      const pmIn = row.pmIn ? parseTime(row.pmIn) : null;
-      const pmOut = row.pmOut ? parseTime(row.pmOut) : null;
-      if (pmIn !== null && pmIn < 720 && row.pmIn !== '00:00') {
-        errors.push("PM In must be at or after 12:00");
-      }
-      if (pmOut !== null && pmOut < 720 && row.pmOut !== '00:00') {
-        errors.push("PM Out must be at or after 12:00");
+      const parseTimeVal = (val) => (val && val.trim() !== '' && val.trim() !== '00:00') ? parseTime(val) : null;
+      const pmIn = parseTimeVal(row.pmIn);
+      const pmOut = parseTimeVal(row.pmOut);
+      if (!isWeekendOrHoliday && type !== 'Holiday') {
+        if (pmIn !== null && pmIn < 720) {
+          errors.push("PM In must be at or after 12:00");
+        }
+        if (pmOut !== null && pmOut < 720) {
+          errors.push("PM Out must be at or after 12:00");
+        }
       }
 
       if (isWeekendOrHoliday && isAllEmptyOrZero && type !== 'Part-Time') {
@@ -1237,18 +1270,22 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       return errors;
     }
 
-    const amIn = row.amIn ? parseTime(row.amIn) : null;
-    const amOut = row.amOut ? parseTime(row.amOut) : null;
-    const lunchOut = row.lunchOut ? parseTime(row.lunchOut) : null;
-    const lunchIn = row.lunchIn ? parseTime(row.lunchIn) : null;
-    const pmIn = row.pmIn ? parseTime(row.pmIn) : null;
-    const pmOut = row.pmOut ? parseTime(row.pmOut) : null;
+    const parseTimeVal = (val) => (val && val.trim() !== '' && val.trim() !== '00:00') ? parseTime(val) : null;
 
-    if (pmIn !== null && pmIn < 720) {
-      errors.push("PM In must be at or after 12:00");
-    }
-    if (pmOut !== null && pmOut < 720) {
-      errors.push("PM Out must be at or after 12:00");
+    const amIn = parseTimeVal(row.amIn);
+    const amOut = parseTimeVal(row.amOut);
+    const lunchOut = parseTimeVal(row.lunchOut);
+    const lunchIn = parseTimeVal(row.lunchIn);
+    const pmIn = parseTimeVal(row.pmIn);
+    const pmOut = parseTimeVal(row.pmOut);
+
+    if (!isWeekendOrHoliday && type !== 'Holiday') {
+      if (pmIn !== null && pmIn < 720) {
+        errors.push("PM In must be at or after 12:00");
+      }
+      if (pmOut !== null && pmOut < 720) {
+        errors.push("PM Out must be at or after 12:00");
+      }
     }
 
     if (isWeekendOrHoliday) {
@@ -1371,8 +1408,9 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
       }
     } else if (isWeekendOrHoliday) {
-      const hasAm = row.amIn && row.amOut;
-      const hasPm = row.pmIn && row.pmOut;
+      const isNonZero = (v) => v && v.trim() !== '' && v.trim() !== '00:00';
+      const hasAm = isNonZero(row.amIn) && isNonZero(row.amOut);
+      const hasPm = isNonZero(row.pmIn) && isNonZero(row.pmOut);
       if (!hasAm && !hasPm) {
         return { reg: '--', ot: '--', tot: '--', rawMins: 0, error: false, errors: [] };
       }
@@ -1411,8 +1449,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       if (hasPm && pmOut > pmIn) pmDiff = pmOut - pmIn;
       totalMins = amDiff + pmDiff;
     } else if (isWeekendOrHoliday) {
-      const hasAm = row.amIn && row.amOut;
-      const hasPm = row.pmIn && row.pmOut;
+      const hasAm = row.amIn && row.amOut && row.amIn !== '00:00' && row.amOut !== '00:00';
+      const hasPm = row.pmIn && row.pmOut && row.pmIn !== '00:00' && row.pmOut !== '00:00';
       let amDiff = 0, pmDiff = 0;
       if (hasAm && amOut > amIn) amDiff = amOut - amIn;
       if (hasPm && pmOut > pmIn) pmDiff = pmOut - pmIn;
@@ -1478,7 +1516,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     }
   };
 
-  const saveTimesheet = async (dateStr, isSubmit) => {
+  const saveTimesheet = async (dateStr, isSubmit, taskDetailsBypassed = false) => {
     if (!isAdmin && employee?.dateOfJoining) {
       try {
         const doj = startOfDay(parseISO(employee.dateOfJoining));
@@ -1719,6 +1757,53 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
     if (!row.user || !row.user.id) row.user = { id: employee.id };
 
+    const checkTaskDetailsRequired = (r) => {
+      const empType = getEmpTypeForDate(employee, r.date);
+      const isPartTime = empType === 'Part time';
+      const rType = r.type || (isPartTime ? 'Part-Time' : (isWknd ? 'Week Off' : 'Working Day'));
+      
+      if (['Paid Leave', 'Unpaid Leave'].includes(rType)) {
+        return false;
+      }
+      
+      const rMins = (calculateHours(r).rawMins || 0);
+      const hasHours = rMins > 0;
+      
+      if (rType === 'Holiday') {
+        return hasHours;
+      }
+      
+      if (isPartTime) {
+        return hasHours;
+      }
+      
+      return ['Working Day', 'WFH', 'W-Day - 1st Half', 'W-Day - 2nd Half', 'W-Day (1st Half)', 'W-Day (2nd Half)'].includes(rType);
+    };
+
+    const rMins = (calculateHours(row).rawMins || 0);
+    const empTypeForDate = getEmpTypeForDate(employee, dateStr);
+    const isPartTime = empTypeForDate === 'Part time' || row.type === 'Part-Time';
+    const rType = row.type || (isPartTime ? 'Part-Time' : (isWknd ? 'Week Off' : 'Working Day'));
+    const isLeave = ['Paid Leave', 'Unpaid Leave'].includes(rType);
+    const isHoliday = rType === 'Holiday';
+    const isHalfDay = ['W-Day (1st Half)', 'W-Day (2nd Half)', 'W-Day - 1st Half', 'W-Day - 2nd Half', 'W-Day 1st Half', 'W-Day 2nd Half'].includes(rType);
+    const isShortHoursNeeded = !isWknd && !isLeave && !isHoliday && !isHalfDay && !isPartTime && rMins > 0 && rMins < 480;
+    const taskDetailsRequired = checkTaskDetailsRequired(row);
+
+    if (isSubmit && !isAdmin && !taskDetailsBypassed && (taskDetailsRequired || isShortHoursNeeded)) {
+      setTaskDetailsModalData({ dateStr, row, isShortHoursNeeded, hoursDisplay: h.tot });
+      const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(
+        row.taskDetails || entries[dateStr]?.taskDetails,
+        row.shortHoursReason || entries[dateStr]?.shortHoursReason
+      );
+      setTaskDetailsText(displayTask);
+      setShortHoursReasonText(displayShortReason);
+      setTaskDetailsError('');
+      setShortHoursError('');
+      setIsTaskDetailsModalOpen(true);
+      return;
+    }
+
     if (h.ot === '--' && row.otStatus) {
       row.otStatus = null;
       row.otReason = null;
@@ -1805,14 +1890,96 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     }
   };
 
-  const handleShortHoursSubmit = async () => {
-    const check = validateAndCleanReason(shortHoursReasonText);
-    if (!check.isValid) {
-      setShortHoursError(check.error);
+  const handleTaskDetailsModalSubmit = async () => {
+    const isShortHoursNeeded = taskDetailsModalData?.isShortHoursNeeded;
+    const taskText = (taskDetailsText || '').trim();
+    const shortText = (shortHoursReasonText || '').trim();
+
+    if (!taskText) {
+      setTaskDetailsError("Today's Task Details are required for submission.");
       return;
     }
+    if (taskText.length > 320) {
+      setTaskDetailsError("Today's Task Details cannot exceed 320 characters.");
+      return;
+    }
+    if (isShortHoursNeeded) {
+      if (!shortText) {
+        setShortHoursError("Reason for Short Working Hours is required.");
+        return;
+      }
+      if (shortText.length > 320) {
+        setShortHoursError("Reason for Short Working Hours cannot exceed 320 characters.");
+        return;
+      }
+    }
+
+    setTaskDetailsError('');
     setShortHoursError('');
-    const cleanedReason = check.cleaned;
+
+    if (!taskDetailsModalData) return;
+    const { dateStr, row } = taskDetailsModalData;
+    row.taskDetails = taskText;
+    if (isShortHoursNeeded) {
+      row.shortHoursReason = shortText;
+    }
+
+    setEditedRows(prev => ({
+      ...prev,
+      [dateStr]: { 
+        ...row, 
+        taskDetails: taskText,
+        shortHoursReason: isShortHoursNeeded ? shortText : (row.shortHoursReason || '')
+      }
+    }));
+
+    setIsTaskDetailsModalOpen(false);
+    setTaskDetailsModalData(null);
+    await saveTimesheet(dateStr, true, true);
+  };
+
+  const handleAdminApproveClick = (id, dateStr) => {
+    if (!id) return;
+    const row = entries[dateStr] || editedRows[dateStr] || {};
+    const empType = getEmpTypeForDate(employee, dateStr);
+    const rType = row.type || (empType === 'Part time' ? 'Part-Time' : 'Working Day');
+    const isLeave = ['Paid Leave', 'Unpaid Leave'].includes(rType);
+    const hrs = calculateHours(row);
+    const isHolidayWithoutTimings = rType === 'Holiday' && (!hrs || (hrs.rawMins || 0) === 0);
+
+    if (isLeave || isHolidayWithoutTimings) {
+      approveTimesheet(id, dateStr);
+      return;
+    }
+
+    setAdminAcceptModalData({ id, dateStr, row });
+    setReadReasonAcceptChecked(false);
+    setIsAdminAcceptModalOpen(true);
+  };
+
+  const handleShortHoursSubmit = async () => {
+    const taskText = (taskDetailsText || '').trim();
+    const shortText = (shortHoursReasonText || '').trim();
+
+    if (!taskText) {
+      setTaskDetailsError("Today's Task Details are required.");
+      return;
+    }
+    if (taskText.length > 320) {
+      setTaskDetailsError("Today's Task Details cannot exceed 320 characters.");
+      return;
+    }
+    if (!shortText) {
+      setShortHoursError("Reason for Short Working Hours is required.");
+      return;
+    }
+    if (shortText.length > 320) {
+      setShortHoursError("Reason for Short Working Hours cannot exceed 320 characters.");
+      return;
+    }
+
+    setTaskDetailsError('');
+    setShortHoursError('');
 
     const dateStr = shortHoursModalData.date;
     let row = editedRows[dateStr] || entries[dateStr] || { date: dateStr, type: 'Working Day', user: { id: employee.id } };
@@ -1826,7 +1993,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
     const updatedRow = {
       ...row,
-      shortHoursReason: cleanedReason,
+      taskDetails: taskText,
+      shortHoursReason: shortText,
       status: targetStatus,
       submitted: true
     };
@@ -1846,7 +2014,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const userId = (payload.user && payload.user.id) || employee.id;
     payload.user = { id: userId };
 
-    setProcessingMessage('Submitting reason...');
+    setProcessingMessage('Submitting details...');
     try {
       await api.post('/timesheets/save', payload);
       setEditedRows(prev => {
@@ -1857,13 +2025,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       await loadData(dateStr);
       setIsShortHoursModalOpen(false);
       setShortHoursModalData(null);
+      setTaskDetailsText('');
       setShortHoursReasonText('');
-      setToast({ type: 'success', text: 'Reason submitted successfully!' });
+      setToast({ type: 'success', text: 'Details submitted successfully!' });
       setTimeout(() => {
-        setToast(prev => prev.text === 'Reason submitted successfully!' ? { type: '', text: '' } : prev);
+        setToast(prev => prev.text === 'Details submitted successfully!' ? { type: '', text: '' } : prev);
       }, 5000);
     } catch (e) {
-      const errMsg = safeErrorText(e, 'Failed to submit reason');
+      const errMsg = safeErrorText(e, 'Failed to submit details');
       setShortHoursError(errMsg);
       await showAlert(errMsg, { title: 'Submission Error', type: 'warn' });
     } finally {
@@ -1952,7 +2121,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       await showAlert('Entry ID is missing. Please refresh the page.', { title: 'Error', type: 'warn' });
       return;
     }
-    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: false, reason: '', hasError: false });
+    setRejectModal({ isOpen: true, entryId: id, dateStr, isOT: false, reason: '', readReasonChecked: false, hasError: false });
   };
 
   const formatReasonText = (text) => {
@@ -2789,6 +2958,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                        !!(entries[dateStr]?.otReason) && 
                                        entries[dateStr]?.otReason.trim() !== '' && 
                                        calculateHours(entries[dateStr]).ot !== '--';
+                const isOtReapplication = !!(
+                  originalHasOT || 
+                  row.otStatus === 'Rejected' || 
+                  row.otStatus === 'Refilled' || 
+                  row.otStatus === 'Filed' || 
+                  hasResubmitAccess || 
+                  row.status === 'Rejected' || 
+                  (row.otReapplyCount || 0) > 0 ||
+                  (row.otReason && row.otReason.trim() !== '')
+                );
                 const isFutureDay = isAfter(startOfDay(d), startOfDay(new Date()));
                 const isLocked = !isAdmin && isPastDeadline(dateStr);
                 const isPendingWorkflow = 
@@ -2845,6 +3024,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                           setAdminRejectionText('');
                           setIsAdminRejectMode(false);
                           setAdminShortHoursError('');
+                          setAdminShortHoursReadReasonChecked(false);
                           setIsAdminShortHoursModalOpen(true);
                         } else {
                           setShortHoursModalData({ 
@@ -2927,20 +3107,38 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   hasAllFields = !!((hasAm || hasPm) && !partialAm && !partialPm);
                 } else if (isWkType) {
                   if (isWeekendOrHoliday) {
-                    const hasAm = row.amIn && row.amOut;
-                    const hasPm = row.pmIn && row.pmOut;
-                    const lunchValid = (!row.lunchOut && !row.lunchIn) || (row.lunchOut && row.lunchIn);
-                    hasAllFields = !!((hasAm || hasPm) && lunchValid);
+                    const isNonZero = (v) => v && v.trim() !== '' && v.trim() !== '00:00';
+                    const hasAmIn = isNonZero(row.amIn);
+                    const hasAmOut = isNonZero(row.amOut);
+                    const hasLunchOut = isNonZero(row.lunchOut);
+                    const hasLunchIn = isNonZero(row.lunchIn);
+                    const hasPmIn = isNonZero(row.pmIn);
+                    const hasPmOut = isNonZero(row.pmOut);
+                    const hasAm = hasAmIn && hasAmOut;
+                    const hasPm = hasPmIn && hasPmOut;
+                    const partialAm = (hasAmIn && !hasAmOut) || (!hasAmIn && hasAmOut);
+                    const partialPm = (hasPmIn && !hasPmOut) || (!hasPmIn && hasPmOut);
+                    const partialLunch = (hasLunchOut && !hasLunchIn) || (!hasLunchOut && hasLunchIn);
+                    hasAllFields = (hasAm || hasPm) && !partialAm && !partialPm && !partialLunch;
                   } else {
                     hasAllFields = !!(row.amIn && row.amOut && row.lunchOut && row.lunchIn && row.pmIn && row.pmOut);
                   }
                 } else if (row.type === 'Holiday') {
-                  const hasAny = row.amIn || row.amOut || row.lunchOut || row.lunchIn || row.pmIn || row.pmOut;
+                  const isNonZero = (v) => v && v.trim() !== '' && v.trim() !== '00:00';
+                  const hasAmIn = isNonZero(row.amIn);
+                  const hasAmOut = isNonZero(row.amOut);
+                  const hasLunchOut = isNonZero(row.lunchOut);
+                  const hasLunchIn = isNonZero(row.lunchIn);
+                  const hasPmIn = isNonZero(row.pmIn);
+                  const hasPmOut = isNonZero(row.pmOut);
+                  const hasAny = hasAmIn || hasAmOut || hasLunchOut || hasLunchIn || hasPmIn || hasPmOut;
                   if (hasAny) {
-                    const hasAm = row.amIn && row.amOut;
-                    const hasPm = row.pmIn && row.pmOut;
-                    const lunchValid = (!row.lunchOut && !row.lunchIn) || (row.lunchOut && row.lunchIn);
-                    hasAllFields = !!((hasAm || hasPm) && lunchValid);
+                    const hasAm = hasAmIn && hasAmOut;
+                    const hasPm = hasPmIn && hasPmOut;
+                    const partialAm = (hasAmIn && !hasAmOut) || (!hasAmIn && hasAmOut);
+                    const partialPm = (hasPmIn && !hasPmOut) || (!hasPmIn && hasPmOut);
+                    const partialLunch = (hasLunchOut && !hasLunchIn) || (!hasLunchOut && hasLunchIn);
+                    hasAllFields = (hasAm || hasPm) && !partialAm && !partialPm && !partialLunch;
                   } else {
                     hasAllFields = true;
                   }
@@ -3114,13 +3312,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                              rejectionReason: row.otRejectionReason || '',
                              clientApproved: row.clientApproved || false, 
                              clientApprovalFile: row.clientApprovalFile || '',
-                             isReapply: originalHasOT && (row.status === 'Rejected' || row.otStatus === 'Rejected' || row.otStatus === 'Refilled' || row.otStatus === 'Filed' || hasResubmitAccess || timingsChangedSinceOtApply),
+                             isReapply: isOtReapplication,
                              timingsChanged: timingsChangedSinceOtApply,
                              otReapplyCount: row.otReapplyCount || 0,
                              oldReason: row.otReason || '',
                              isNewReasonVisible: false
                            })} className="ot-apply-btn" style={{background: '#fef2f2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center'}} onMouseOver={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.borderColor = '#ef4444'; }} onMouseOut={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fca5a5'; }}>
-                            {(originalHasOT && (row.status === 'Rejected' || row.otStatus === 'Rejected' || row.otStatus === 'Refilled' || row.otStatus === 'Filed' || hasResubmitAccess || timingsChangedSinceOtApply)) ? 'Reapply OT' : 'Apply OT'}
+                            {isOtReapplication ? 'Reapply OT' : 'Apply OT'}
                            </button>
                         </div>
                       )}
@@ -3150,7 +3348,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                               {(row.otStatus === 'Approved' || (row.status === 'Approved' && row.otStatus && !['Rejected', 'Filed', 'Refilled'].includes(row.otStatus))) && (
                                 <span style={{fontSize:'11px', color:'#0d9488', fontWeight:'bold'}}>Approved</span>
                               )}
-                              {(row.otStatus === 'Rejected' || (row.status === 'Rejected' && (!row.otStatus || isAdmin || row.otStatus !== 'Refilled'))) && (
+                              {(row.otStatus === 'Rejected' || (row.status === 'Rejected' && (!row.otStatus || isAdmin) && !['Filed', 'Refilled', 'Approved'].includes(row.otStatus))) && (
                                 <span style={{fontSize:'11px', color:'#e85d5d', fontWeight:'bold'}}>Rejected</span>
                               )}
                             </>
@@ -3170,7 +3368,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                  clientApproved: row.clientApproved,
                                  clientApprovalFile: row.clientApprovalFile,
                                  isReadOnly: row.status === 'Approved' || isAdmin || isPendingWorkflow,
-                                 isReapply: originalHasOT && (row.status === 'Rejected' || row.otStatus === 'Rejected' || row.otStatus === 'Refilled' || row.otStatus === 'Filed' || hasResubmitAccess || timingsChangedSinceOtApply),
+                                 isReapply: isOtReapplication,
                                  timingsChanged: timingsChangedSinceOtApply,
                                  oldReason: row.otReason || '',
                                  isNewReasonVisible: false,
@@ -3282,9 +3480,14 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                     <button
                                        onClick={(e) => {
                                          e.stopPropagation();
-                                         const existingReason = row.shortHoursReason || entries[dateStr]?.shortHoursReason || '';
+                                         const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(
+                                           row.taskDetails || entries[dateStr]?.taskDetails,
+                                           row.shortHoursReason || entries[dateStr]?.shortHoursReason
+                                         );
                                          setShortHoursModalData({ date: dateStr, timings: row, hours: hrs.tot, isReadOnly: false });
-                                         setShortHoursReasonText(existingReason);
+                                         setTaskDetailsText(displayTask);
+                                         setShortHoursReasonText(displayShortReason);
+                                         setTaskDetailsError('');
                                          setShortHoursError('');
                                          setIsShortHoursModalOpen(true);
                                        }}
@@ -3319,7 +3522,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
                              const needsOT = hrs.ot !== '--' && (!row.otStatus || row.otStatus === 'Rejected' || (hasResubmitAccess && row.otStatus !== 'Refilled' && row.otStatus !== 'Filed') || timingsChangedSinceOtApply);
                              const blocked = needsOT || (otTimingChanged && row.otStatus !== 'Refilled' && row.otStatus !== 'Filed');
-                             const hint = blocked ? ((row.otStatus === 'Rejected' || (hasResubmitAccess && originalHasOT) || timingsChangedSinceOtApply || row.otStatus === 'Refilled') ? 'Reapply OT' : 'Apply OT') : '';
+                             const hint = blocked ? (isOtReapplication ? 'Reapply OT' : 'Apply OT') : '';
                              
                              let btnText = row.status === 'Pending' ? 'Submit' : (['Rejected', 'Reapproval Pending'].includes(row.status) || isOTReapplied || hasResubmitAccess) ? 'Resubmit' : (row.status === 'Approved' ? 'Re-submit' : 'Submit');
                              
@@ -3370,13 +3573,18 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                    <button 
                                      onClick={(e) => {
                                        e.stopPropagation();
+                                       const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(
+                                         row.taskDetails || entries[dateStr]?.taskDetails,
+                                         row.shortHoursReason || entries[dateStr]?.shortHoursReason
+                                       );
                                        setAdminShortHoursModalData({
                                          id: row.id,
                                          name: employee.name,
                                          empId: employee.empId,
                                          date: dateStr,
                                          hours: hrs.tot,
-                                         reason: row.shortHoursReason || 'No reason provided.'
+                                         taskDetails: displayTask,
+                                         reason: displayShortReason
                                        });
                                        setAdminRejectionText('');
                                        setIsAdminRejectMode(false);
@@ -3390,7 +3598,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                                  ) : (
                                    <div className="admin-actions-container">
                                      <button 
-                                       onClick={() => approveTimesheet(row.id, dateStr)} 
+                                       onClick={() => handleAdminApproveClick(row.id, dateStr)} 
                                        style={{background:'#2d8f7b', color:'#fff', padding:'4px 8px', borderRadius:'4px', cursor: 'pointer', border:'none'}}
                                      >Approve</button>
                                      <button 
@@ -3659,17 +3867,91 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       {rejectModal.isOpen && (
         <Modal 
           isOpen={rejectModal.isOpen} 
-          title={rejectModal.isOT ? "Reject OT Request" : "Reject Timesheet Entry"} 
+          title={rejectModal.isOT ? "Reject OT Request" : "Reject Timesheet"} 
           onClose={() => setRejectModal({...rejectModal, isOpen: false})}
           onSubmit={e => { e.preventDefault(); handleRejectSubmit(); }}
           actions={
             <>
               <button className="btn-cancel" type="button" onClick={() => setRejectModal({...rejectModal, isOpen: false})}>Cancel</button>
-              <button className="btn-submit-modal" type="submit" style={{background: '#e85d5d'}}>Submit Rejection</button>
+              {(() => {
+                const dStr = rejectModal.dateStr;
+                const r = entries[dStr] || editedRows[dStr] || rejectModal.row || {};
+                const empType = getEmpTypeForDate(employee, dStr);
+                const rType = r.type || (empType === 'Part time' ? 'Part-Time' : 'Working Day');
+                const isLeave = ['Paid Leave', 'Unpaid Leave'].includes(rType);
+                const hrs = calculateHours(r);
+                const isHolidayWithoutTimings = rType === 'Holiday' && (!hrs || (hrs.rawMins || 0) === 0);
+                const isNoTimingsSpecialType = !rejectModal.isOT && (isLeave || isHolidayWithoutTimings);
+
+                return (
+                  <button 
+                    className="btn-submit-modal" 
+                    type="submit" 
+                    disabled={!isNoTimingsSpecialType && !rejectModal.readReasonChecked}
+                    style={{
+                      background: '#e85d5d',
+                      opacity: (isNoTimingsSpecialType || rejectModal.readReasonChecked) ? 1 : 0.5,
+                      cursor: (isNoTimingsSpecialType || rejectModal.readReasonChecked) ? 'pointer' : 'not-allowed'
+                    }}
+                  >
+                    Reject
+                  </button>
+                );
+              })()}
             </>
           }
         >
           <div style={{padding: '0 10px'}}>
+            {!rejectModal.isOT && (() => {
+              const dStr = rejectModal.dateStr;
+              const r = entries[dStr] || editedRows[dStr] || rejectModal.row || {};
+              const empType = getEmpTypeForDate(employee, dStr);
+              const rType = r.type || (empType === 'Part time' ? 'Part-Time' : 'Working Day');
+              const isLeave = ['Paid Leave', 'Unpaid Leave'].includes(rType);
+              const hrs = calculateHours(r);
+              const isHolidayWithoutTimings = rType === 'Holiday' && (!hrs || (hrs.rawMins || 0) === 0);
+              const isNoTimingsSpecialType = isLeave || isHolidayWithoutTimings;
+
+              if (isNoTimingsSpecialType) {
+                return null;
+              }
+
+              const taskVal = r.taskDetails || rejectModal.row?.taskDetails;
+              const shortVal = r.shortHoursReason || rejectModal.row?.shortHoursReason;
+              const fallbackVal = r.reason || rejectModal.row?.reason;
+              const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(taskVal, shortVal, fallbackVal);
+              return (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+                    {displayShortReason && displayShortReason.trim().length > 0 && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '6px', padding: '12px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#b45309', marginBottom: '4px', textTransform: 'uppercase' }}>Reason for Short Working Hours</div>
+                        <div style={{ fontSize: '13px', color: '#78350f', whiteSpace: 'pre-wrap', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                          "{displayShortReason}"
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>Today's Task Details</div>
+                      <div style={{ fontSize: '13px', color: '#334155', whiteSpace: 'pre-wrap', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                        "{displayTask || 'No Task Details provided.'}"
+                      </div>
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '14px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={rejectModal.readReasonChecked || false} 
+                      onChange={e => setRejectModal(prev => ({ ...prev, readReasonChecked: e.target.checked }))}
+                      style={{ width: '16px', height: '16px', accentColor: '#e85d5d', cursor: 'pointer' }}
+                    />
+                    Read the reason
+                  </label>
+                </>
+              );
+            })()}
+
             <label style={{display:'block', marginBottom:'8px', fontWeight:'bold'}}>Reason for Rejection <span style={{color:'#e11d48'}}>*</span></label>
             <textarea 
               id="reject-reason"
@@ -3688,6 +3970,189 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             )}
           </div>
         </Modal>
+      )}
+
+      {isTaskDetailsModalOpen && taskDetailsModalData && (
+        <div className="modal-overlay open" style={{ zIndex: 1001, background: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal" style={{ width: '480px', maxWidth: '92vw', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>
+                {taskDetailsModalData.isShortHoursNeeded ? "Working Hours < 8 Hours" : "Enter Today's Task Details"}
+              </h3>
+              <button className="modal-close" onClick={() => { setIsTaskDetailsModalOpen(false); setTaskDetailsModalData(null); }}>×</button>
+            </div>
+
+            {taskDetailsModalData.isShortHoursNeeded && (
+              <div className="modal-sub" style={{ margin: '0 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
+                Working hours on <strong>{taskDetailsModalData.dateStr}</strong> are less than 8 hours (Total: <strong>{taskDetailsModalData.hoursDisplay}</strong>). Please fill the details below.
+              </div>
+            )}
+
+            {taskDetailsModalData.isShortHoursNeeded && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
+                  REASON FOR SHORT WORKING HOURS <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <textarea
+                  className="form-input"
+                  maxLength={320}
+                  rows={4}
+                  style={{ resize: 'vertical', width: '100%', padding: '10px', fontSize: '13px', borderRadius: '6px', border: shortHoursError ? '1.5px solid #ef4444' : '1px solid #cbd5e1' }}
+                  placeholder="Explain why working hours are less than 8 hours (max 320 chars)..."
+                  value={shortHoursReasonText}
+                  onChange={(e) => {
+                    setShortHoursReasonText(e.target.value.slice(0, 320));
+                    if (e.target.value.trim()) setShortHoursError('');
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                  <div>
+                    {shortHoursError && (
+                      <span style={{ color: '#ef4444', fontSize: '11px', fontWeight: '500' }}>
+                        {shortHoursError}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                    {shortHoursReasonText.length}/320
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="form-group" style={{ marginBottom: '18px' }}>
+              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
+                TODAY'S TASK DETAILS <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <textarea
+                className="form-input"
+                maxLength={320}
+                rows={4}
+                style={{ resize: 'vertical', width: '100%', padding: '10px', fontSize: '13px', borderRadius: '6px', border: taskDetailsError ? '1.5px solid #ef4444' : '1px solid #cbd5e1' }}
+                placeholder="Describe today's work (max 320 chars)..."
+                value={taskDetailsText}
+                onChange={(e) => {
+                  setTaskDetailsText(e.target.value.slice(0, 320));
+                  if (e.target.value.trim()) setTaskDetailsError('');
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                <div>
+                  {taskDetailsError && (
+                    <span style={{ color: '#ef4444', fontSize: '11px', fontWeight: '500' }}>
+                      {taskDetailsError}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                  {taskDetailsText.length}/320
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const isTaskFilled = taskDetailsText && taskDetailsText.trim().length > 0;
+              const isShortFilled = !taskDetailsModalData.isShortHoursNeeded || (shortHoursReasonText && shortHoursReasonText.trim().length > 0);
+              const isFormValid = isTaskFilled && isShortFilled;
+
+              return (
+                <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    className="btn-cancel" 
+                    style={{ flex: 1 }} 
+                    onClick={() => { setIsTaskDetailsModalOpen(false); setTaskDetailsModalData(null); }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn-submit-modal" 
+                    style={{ 
+                      flex: 1, 
+                      backgroundColor: 'var(--teal)', 
+                      opacity: isFormValid ? 1 : 0.5, 
+                      cursor: isFormValid ? 'pointer' : 'not-allowed' 
+                    }} 
+                    onClick={handleTaskDetailsModalSubmit}
+                    disabled={!isFormValid || processingMessage !== null}
+                  >
+                    Submit
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {isAdminAcceptModalOpen && adminAcceptModalData && (
+        <div className="modal-overlay open" style={{ zIndex: 1001, background: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal" style={{ width: '450px', maxWidth: '90vw', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Accept Timesheet</h3>
+              <button className="modal-close" onClick={() => { setIsAdminAcceptModalOpen(false); setAdminAcceptModalData(null); }}>×</button>
+            </div>
+
+            {(() => {
+              const dStr = adminAcceptModalData.dateStr;
+              const r = entries[dStr] || editedRows[dStr] || adminAcceptModalData.row || {};
+              const taskVal = r.taskDetails || adminAcceptModalData.row?.taskDetails;
+              const shortVal = r.shortHoursReason || adminAcceptModalData.row?.shortHoursReason;
+              const fallbackVal = r.reason || adminAcceptModalData.row?.reason;
+              const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(taskVal, shortVal, fallbackVal);
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                  {displayShortReason && displayShortReason.trim().length > 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#b45309', textTransform: 'uppercase', marginBottom: '4px' }}>Reason for Short Working Hours</div>
+                      <div style={{ fontSize: '13px', color: '#78350f', lineHeight: '1.4', fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        "{displayShortReason}"
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#0d9488', textTransform: 'uppercase', marginBottom: '4px' }}>Today's Task Details</div>
+                    <div style={{ fontSize: '13px', color: '#115e59', lineHeight: '1.4', fontStyle: 'italic', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      "{displayTask || 'No Task Details provided.'}"
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '20px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+              <input 
+                type="checkbox" 
+                checked={readReasonAcceptChecked} 
+                onChange={e => setReadReasonAcceptChecked(e.target.checked)}
+                style={{ width: '16px', height: '16px', accentColor: '#2d8f7b', cursor: 'pointer' }}
+              />
+              Read the reason
+            </label>
+
+            <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className="btn-cancel" 
+                style={{ flex: 1 }} 
+                onClick={() => { setIsAdminAcceptModalOpen(false); setAdminAcceptModalData(null); }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn-submit-modal" 
+                style={{ flex: 1, backgroundColor: '#2d8f7b', opacity: readReasonAcceptChecked ? 1 : 0.5, cursor: readReasonAcceptChecked ? 'pointer' : 'not-allowed' }} 
+                disabled={!readReasonAcceptChecked || processingMessage !== null}
+                onClick={() => {
+                  approveTimesheet(adminAcceptModalData.id, adminAcceptModalData.dateStr);
+                  setIsAdminAcceptModalOpen(false);
+                  setAdminAcceptModalData(null);
+                }}
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {grantModal.isOpen && (
@@ -3844,23 +4309,24 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
       {isShortHoursModalOpen && shortHoursModalData && (
         <div className="modal-overlay open" style={{ zIndex: 1001, background: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal" style={{ width: '420px', maxWidth: '90vw', padding: '24px' }}>
-            <div className="modal-header">
-              <h3>Working Hours &lt; 8 Hours</h3>
+          <div className="modal" style={{ width: '480px', maxWidth: '92vw', padding: '24px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Working Hours &lt; 8 Hours</h3>
               <button className="modal-close" onClick={() => { setIsShortHoursModalOpen(false); setShortHoursModalData(null); }}>×</button>
             </div>
-            <div className="modal-sub" style={{ margin: '14px 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
-              Working hours on <strong>{shortHoursModalData.date}</strong> are less than 8 hours (Total: <strong>{shortHoursModalData.hours}</strong>). Please fill the reason.
+            <div className="modal-sub" style={{ margin: '0 0 16px 0', color: '#475569', fontSize: '13px', lineHeight: '1.5' }}>
+              Working hours on <strong>{shortHoursModalData.date}</strong> are less than 8 hours (Total: <strong>{shortHoursModalData.hours}</strong>). Please fill the details below.
             </div>
 
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
                 REASON FOR SHORT WORKING HOURS <span style={{ color: '#e11d48' }}>*</span>
               </label>
               <textarea
                 className="form-input"
                 maxLength={320}
-                style={{ resize: 'vertical', minHeight: '90px', marginBottom: '0px', width: '100%' }}
+                rows={4}
+                style={{ resize: 'vertical', width: '100%', padding: '10px', fontSize: '13px', borderRadius: '6px', border: shortHoursError ? '1.5px solid #ef4444' : '1px solid #cbd5e1' }}
                 placeholder="Explain why working hours are less than 8 hours (max 320 chars)..."
                 value={shortHoursReasonText}
                 disabled={shortHoursModalData.isReadOnly}
@@ -3869,39 +4335,160 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   if (e.target.value.trim()) setShortHoursError('');
                 }}
               />
-              {shortHoursError && (
-                <span style={{ color: '#ef4444', fontSize: '11px', marginTop: '6px', display: 'block', fontWeight: '500' }}>
-                  {shortHoursError}
-                </span>
-              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                <div>
+                  {shortHoursError && (
+                    <span style={{ color: '#ef4444', fontSize: '11px', fontWeight: '500' }}>
+                      {shortHoursError}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                  {shortHoursReasonText.length}/320
+                </div>
+              </div>
             </div>
 
-            <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                className="btn-cancel" 
-                style={{ flex: 1 }} 
-                onClick={() => { setIsShortHoursModalOpen(false); setShortHoursModalData(null); }}
-              >
-                {shortHoursModalData.isReadOnly ? 'Close' : 'Cancel'}
-              </button>
-                            {!shortHoursModalData.isReadOnly && (() => {
-                const originalReason = (entries[shortHoursModalData.date]?.shortHoursReason || '').trim();
-                const currentReason = (shortHoursReasonText || '').trim();
-                const isModified = currentReason !== originalReason;
-                return (
-                  <button 
-                    className="btn-submit-modal" 
-                    style={{ flex: 1, backgroundColor: 'var(--teal)', opacity: isModified ? 1 : 0.6, cursor: isModified ? 'pointer' : 'not-allowed' }} 
-                    onClick={handleShortHoursSubmit}
-                    disabled={!isModified || processingMessage !== null}
-                  >
-                    Submit
-                  </button>
-                );
-              })()}
+            <div className="form-group" style={{ marginBottom: '18px' }}>
+              <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
+                TODAY'S TASK DETAILS <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <textarea
+                className="form-input"
+                maxLength={320}
+                rows={4}
+                style={{ resize: 'vertical', width: '100%', padding: '10px', fontSize: '13px', borderRadius: '6px', border: taskDetailsError ? '1.5px solid #ef4444' : '1px solid #cbd5e1' }}
+                placeholder="Describe today's work (max 320 chars)..."
+                value={taskDetailsText}
+                disabled={shortHoursModalData.isReadOnly}
+                onChange={(e) => {
+                  setTaskDetailsText(e.target.value.slice(0, 320));
+                  if (e.target.value.trim()) setTaskDetailsError('');
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                <div>
+                  {taskDetailsError && (
+                    <span style={{ color: '#ef4444', fontSize: '11px', fontWeight: '500' }}>
+                      {taskDetailsError}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                  {taskDetailsText.length}/320
+                </div>
+              </div>
             </div>
+
+            {(() => {
+              const isTaskFilled = taskDetailsText && taskDetailsText.trim().length > 0;
+              const isShortFilled = shortHoursReasonText && shortHoursReasonText.trim().length > 0;
+              const isFormValid = isTaskFilled && isShortFilled;
+
+              return (
+                <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    className="btn-cancel" 
+                    style={{ flex: 1 }} 
+                    onClick={() => { setIsShortHoursModalOpen(false); setShortHoursModalData(null); }}
+                  >
+                    {shortHoursModalData.isReadOnly ? 'Close' : 'Cancel'}
+                  </button>
+                  {!shortHoursModalData.isReadOnly && (
+                    <button 
+                      className="btn-submit-modal" 
+                      style={{ 
+                        flex: 1, 
+                        backgroundColor: 'var(--teal)', 
+                        opacity: isFormValid ? 1 : 0.5, 
+                        cursor: isFormValid ? 'pointer' : 'not-allowed' 
+                      }} 
+                      onClick={handleShortHoursSubmit}
+                      disabled={!isFormValid || processingMessage !== null}
+                    >
+                      Submit
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
+      )}
+
+      {isAdminAcceptModalOpen && adminAcceptModalData && (
+        <Modal
+          isOpen={isAdminAcceptModalOpen}
+          title="Approve Timesheet Review"
+          onClose={() => { setIsAdminAcceptModalOpen(false); setAdminAcceptModalData(null); }}
+          actions={
+            <>
+              <button 
+                className="btn-cancel" 
+                type="button" 
+                onClick={() => { setIsAdminAcceptModalOpen(false); setAdminAcceptModalData(null); }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-submit-modal"
+                type="button"
+                disabled={!readReasonAcceptChecked}
+                style={{
+                  backgroundColor: '#2d8f7b',
+                  opacity: readReasonAcceptChecked ? 1 : 0.5,
+                  cursor: readReasonAcceptChecked ? 'pointer' : 'not-allowed'
+                }}
+                onClick={() => {
+                  approveTimesheet(adminAcceptModalData.id, adminAcceptModalData.dateStr);
+                  setIsAdminAcceptModalOpen(false);
+                  setAdminAcceptModalData(null);
+                }}
+              >
+                Approve
+              </button>
+            </>
+          }
+        >
+          <div style={{ padding: '0 10px' }}>
+            {(() => {
+              const dStr = adminAcceptModalData.dateStr;
+              const r = entries[dStr] || editedRows[dStr] || adminAcceptModalData.row || {};
+              const taskVal = r.taskDetails || adminAcceptModalData.row?.taskDetails;
+              const shortVal = r.shortHoursReason || adminAcceptModalData.row?.shortHoursReason;
+              const fallbackVal = r.reason || adminAcceptModalData.row?.reason;
+              const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(taskVal, shortVal, fallbackVal);
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+                  {displayShortReason && displayShortReason.trim().length > 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '6px', padding: '12px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#b45309', marginBottom: '4px', textTransform: 'uppercase' }}>Reason for Short Working Hours</div>
+                      <div style={{ fontSize: '13px', color: '#78350f', whiteSpace: 'pre-wrap', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                        "{displayShortReason}"
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', marginBottom: '4px', textTransform: 'uppercase' }}>Today's Task Details</div>
+                    <div style={{ fontSize: '13px', color: '#334155', whiteSpace: 'pre-wrap', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                      "{displayTask || 'No Task Details provided.'}"
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '14px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+              <input
+                type="checkbox"
+                checked={readReasonAcceptChecked}
+                onChange={e => setReadReasonAcceptChecked(e.target.checked)}
+                style={{ width: '16px', height: '16px', accentColor: '#2d8f7b', cursor: 'pointer' }}
+              />
+              Read the reason
+            </label>
+          </div>
+        </Modal>
       )}
 
       {isAdminShortHoursModalOpen && adminShortHoursModalData && (
@@ -3912,26 +4499,42 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               <button className="modal-close" onClick={() => { setIsAdminShortHoursModalOpen(false); setAdminShortHoursModalData(null); setIsAdminRejectMode(false); }}>×</button>
             </div>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-              <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Employee</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.name} ({adminShortHoursModalData.empId})</div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Date</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.date}</div>
+            {(() => {
+              const dStr = adminShortHoursModalData.date;
+              const r = entries[dStr] || editedRows[dStr] || adminShortHoursModalData.row || {};
+              const taskVal = r.taskDetails || adminShortHoursModalData.taskDetails || adminShortHoursModalData.row?.taskDetails;
+              const shortVal = r.shortHoursReason || adminShortHoursModalData.reason || adminShortHoursModalData.row?.shortHoursReason;
+              const fallbackVal = r.reason || adminShortHoursModalData.reason || adminShortHoursModalData.row?.reason;
+              const { displayTask, displayShortReason } = getDisplayTaskAndShortReason(taskVal, shortVal, fallbackVal);
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                  <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Employee</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.name} ({adminShortHoursModalData.empId})</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Date</div>
+                      <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.date}</div>
+                    </div>
+                    <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Hours Worked</div>
+                      <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.hours}</div>
+                    </div>
+                  </div>
+                  {displayShortReason && displayShortReason.trim().length > 0 && (
+                    <div style={{ background: '#fffbeb', padding: '14px', borderRadius: '8px', border: '1px solid #fef3c7' }}>
+                      <div style={{ fontSize: '10px', color: '#b45309', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4px' }}>Reason for Short Working Hours</div>
+                      <div style={{ fontSize: '13px', color: '#78350f', lineHeight: '1.4', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>"{displayShortReason}"</div>
+                    </div>
+                  )}
+                  <div style={{ background: '#f0fdfa', padding: '14px', borderRadius: '8px', border: '1px solid #ccfbf1' }}>
+                    <div style={{ fontSize: '10px', color: '#0d9488', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4px' }}>Today's Task Details</div>
+                    <div style={{ fontSize: '13px', color: '#115e59', lineHeight: '1.4', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>"{displayTask || 'No Task Details provided.'}"</div>
+                  </div>
                 </div>
-                <div style={{ flex: 1, background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>Hours Worked</div>
-                  <div style={{ fontSize: '12.5px', fontWeight: '600', color: '#1a2744' }}>{adminShortHoursModalData.hours}</div>
-                </div>
-              </div>
-              <div style={{ background: '#f0fdfa', padding: '14px', borderRadius: '8px', border: '1px solid #ccfbf1' }}>
-                <div style={{ fontSize: '10px', color: '#0d9488', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4px' }}>Employee's Submitted Reason</div>
-                <div style={{ fontSize: '13px', color: '#115e59', lineHeight: '1.4', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>"{adminShortHoursModalData.reason}"</div>
-              </div>
-            </div>
+              );
+            })()}
 
             {isAdminRejectMode && (
               <div className="form-group" style={{ marginBottom: '18px' }}>
@@ -3957,6 +4560,18 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
               </div>
             )}
 
+            {!adminShortHoursModalData.isReadOnly && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '16px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+                <input 
+                  type="checkbox" 
+                  checked={adminShortHoursReadReasonChecked} 
+                  onChange={e => setAdminShortHoursReadReasonChecked(e.target.checked)}
+                  style={{ width: '16px', height: '16px', accentColor: '#2d8f7b', cursor: 'pointer' }}
+                />
+                Read the reason
+              </label>
+            )}
+
             <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
               {adminShortHoursModalData.isReadOnly ? (
                 <button 
@@ -3977,14 +4592,16 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   </button>
                   <button 
                     className="btn-submit-modal" 
-                    style={{ flex: 1, backgroundColor: '#e85d5d' }} 
+                    disabled={!adminShortHoursReadReasonChecked}
+                    style={{ flex: 1, backgroundColor: '#e85d5d', opacity: adminShortHoursReadReasonChecked ? 1 : 0.5, cursor: adminShortHoursReadReasonChecked ? 'pointer' : 'not-allowed' }} 
                     onClick={() => setIsAdminRejectMode(true)}
                   >
                     Reject
                   </button>
                   <button 
                     className="btn-submit-modal" 
-                    style={{ flex: 1, backgroundColor: '#2d8f7b' }} 
+                    disabled={!adminShortHoursReadReasonChecked}
+                    style={{ flex: 1, backgroundColor: '#2d8f7b', opacity: adminShortHoursReadReasonChecked ? 1 : 0.5, cursor: adminShortHoursReadReasonChecked ? 'pointer' : 'not-allowed' }} 
                     onClick={() => {
                       approveTimesheet(adminShortHoursModalData.id, adminShortHoursModalData.date);
                       setIsAdminShortHoursModalOpen(false);

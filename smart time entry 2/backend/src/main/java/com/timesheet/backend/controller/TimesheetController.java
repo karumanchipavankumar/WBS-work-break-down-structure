@@ -55,8 +55,17 @@ public class TimesheetController {
     
     @PostMapping("/save")
     public ResponseEntity<?> saveTimesheet(@RequestBody TimesheetEntry entry) {
+        if (entry.getTaskDetails() != null) {
+            entry.setTaskDetails(cleanText(entry.getTaskDetails()));
+            if (entry.getTaskDetails().length() > 320) {
+                return ResponseEntity.badRequest().body("Today's Task Details cannot exceed 320 characters.");
+            }
+        }
         if (entry.getShortHoursReason() != null) {
             entry.setShortHoursReason(cleanText(entry.getShortHoursReason()));
+            if (entry.getShortHoursReason().length() > 320) {
+                return ResponseEntity.badRequest().body("Reason for Short Working Hours cannot exceed 320 characters.");
+            }
         }
         if (entry.getOtReason() != null) {
             entry.setOtReason(cleanText(entry.getOtReason()));
@@ -149,16 +158,67 @@ public class TimesheetController {
             entry.setLunchIn("00:00");
         }
 
-        if (entry.getPmIn() != null && !entry.getPmIn().trim().isEmpty()) {
-            Integer pmIn = parseTime(entry.getPmIn());
-            if (pmIn != null && pmIn < 720) {
-                return ResponseEntity.badRequest().body("PM In must be at or after 12:00");
+        // Validate mandatory Task Details & Short Hours Reason requirement on submission
+        boolean isSubmitting = "Pending".equalsIgnoreCase(entry.getStatus()) || "Reapproval Pending".equalsIgnoreCase(entry.getStatus());
+        if (isSubmitting) {
+            boolean isLeave = "Paid Leave".equalsIgnoreCase(type) || "Unpaid Leave".equalsIgnoreCase(type);
+            boolean isHoliday = "Holiday".equalsIgnoreCase(type);
+            int workMins = computeWorkingMins(entry);
+            boolean isHolidayWithHours = isHoliday && workMins > 0;
+            
+            boolean taskDetailsRequired = false;
+            if (!isLeave) {
+                if (isHoliday) {
+                    if (isHolidayWithHours) {
+                        taskDetailsRequired = true;
+                    }
+                } else if (isPartTimeEmp) {
+                    if (workMins > 0) {
+                        taskDetailsRequired = true;
+                    }
+                } else {
+                    // Full-Time working days
+                    if ("Working Day".equalsIgnoreCase(type) || "WFH".equalsIgnoreCase(type) ||
+                        "W-Day - 1st Half".equalsIgnoreCase(type) || "W-Day - 2nd Half".equalsIgnoreCase(type) ||
+                        "W-Day 1st Half".equalsIgnoreCase(type) || "W-Day 2nd Half".equalsIgnoreCase(type)) {
+                        taskDetailsRequired = true;
+                    }
+                }
+            }
+
+            if (taskDetailsRequired) {
+                if ((entry.getTaskDetails() == null || entry.getTaskDetails().trim().isEmpty()) && (entry.getShortHoursReason() != null && !entry.getShortHoursReason().trim().isEmpty())) {
+                    entry.setTaskDetails(entry.getShortHoursReason());
+                }
+                if (entry.getTaskDetails() == null || entry.getTaskDetails().trim().isEmpty()) {
+                    return ResponseEntity.badRequest().body("Today's Task Details are required for submission.");
+                }
+            }
+
+            boolean isHolidayType = "Holiday".equalsIgnoreCase(type) || isHoliday;
+            boolean isHalfDay = "W-Day - 1st Half".equalsIgnoreCase(type) || "W-Day - 2nd Half".equalsIgnoreCase(type) ||
+                                "W-Day (1st Half)".equalsIgnoreCase(type) || "W-Day (2nd Half)".equalsIgnoreCase(type) ||
+                                "W-Day 1st Half".equalsIgnoreCase(type) || "W-Day 2nd Half".equalsIgnoreCase(type);
+            boolean isShortHours = (!isWknd) && (!isLeave) && (!isHolidayType) && (!isHalfDay) && (!isPartTimeEmp) && (workMins > 0 && workMins < 480);
+            if (isShortHours) {
+                if (entry.getShortHoursReason() == null || entry.getShortHoursReason().trim().isEmpty()) {
+                    return ResponseEntity.badRequest().body("Reason for Short Working Hours is required when working hours are less than 8 hours.");
+                }
             }
         }
-        if (entry.getPmOut() != null && !entry.getPmOut().trim().isEmpty()) {
-            Integer pmOut = parseTime(entry.getPmOut());
-            if (pmOut != null && pmOut < 720) {
-                return ResponseEntity.badRequest().body("PM Out must be at or after 12:00");
+
+        if (!isWeekendOrHoliday && !"Holiday".equalsIgnoreCase(type) && !"Holiday".equalsIgnoreCase(entry.getType())) {
+            if (entry.getPmIn() != null && !entry.getPmIn().trim().isEmpty() && !"00:00".equals(entry.getPmIn().trim())) {
+                Integer pmIn = parseTime(entry.getPmIn());
+                if (pmIn != null && pmIn < 720) {
+                    return ResponseEntity.badRequest().body("PM In must be at or after 12:00");
+                }
+            }
+            if (entry.getPmOut() != null && !entry.getPmOut().trim().isEmpty() && !"00:00".equals(entry.getPmOut().trim())) {
+                Integer pmOut = parseTime(entry.getPmOut());
+                if (pmOut != null && pmOut < 720) {
+                    return ResponseEntity.badRequest().body("PM Out must be at or after 12:00");
+                }
             }
         }
 
@@ -208,12 +268,12 @@ public class TimesheetController {
             }
         } else {
             if ("Working Day".equalsIgnoreCase(type) || "WFH".equalsIgnoreCase(type) || "Holiday".equalsIgnoreCase(type)) {
-                boolean hasAmIn = entry.getAmIn() != null && !entry.getAmIn().trim().isEmpty();
-                boolean hasAmOut = entry.getAmOut() != null && !entry.getAmOut().trim().isEmpty();
-                boolean hasLunchOut = entry.getLunchOut() != null && !entry.getLunchOut().trim().isEmpty();
-                boolean hasLunchIn = entry.getLunchIn() != null && !entry.getLunchIn().trim().isEmpty();
-                boolean hasPmIn = entry.getPmIn() != null && !entry.getPmIn().trim().isEmpty();
-                boolean hasPmOut = entry.getPmOut() != null && !entry.getPmOut().trim().isEmpty();
+                boolean hasAmIn = entry.getAmIn() != null && !entry.getAmIn().trim().isEmpty() && !"00:00".equals(entry.getAmIn().trim());
+                boolean hasAmOut = entry.getAmOut() != null && !entry.getAmOut().trim().isEmpty() && !"00:00".equals(entry.getAmOut().trim());
+                boolean hasLunchOut = entry.getLunchOut() != null && !entry.getLunchOut().trim().isEmpty() && !"00:00".equals(entry.getLunchOut().trim());
+                boolean hasLunchIn = entry.getLunchIn() != null && !entry.getLunchIn().trim().isEmpty() && !"00:00".equals(entry.getLunchIn().trim());
+                boolean hasPmIn = entry.getPmIn() != null && !entry.getPmIn().trim().isEmpty() && !"00:00".equals(entry.getPmIn().trim());
+                boolean hasPmOut = entry.getPmOut() != null && !entry.getPmOut().trim().isEmpty() && !"00:00".equals(entry.getPmOut().trim());
                 boolean hasAny = hasAmIn || hasAmOut || hasLunchOut || hasLunchIn || hasPmIn || hasPmOut;
 
                 if (isWeekendOrHoliday) {
