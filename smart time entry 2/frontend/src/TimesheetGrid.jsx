@@ -44,9 +44,9 @@ const validateAndCleanReason = (text, fieldName = 'Reason') => {
 };
 
 const getDisplayTaskAndShortReason = (taskDetails, shortHoursReason, fallbackReason) => {
-  const task = (taskDetails || '').trim();
-  const short = (shortHoursReason || '').trim();
-  const fallback = (fallbackReason || '').trim();
+  const task = (taskDetails || '').replace(/\s+/g, ' ').trim();
+  const short = (shortHoursReason || '').replace(/\s+/g, ' ').trim();
+  const fallback = (fallbackReason || '').replace(/\s+/g, ' ').trim();
 
   if (task && short && task !== short) {
     return { displayTask: task, displayShortReason: short };
@@ -1059,12 +1059,13 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       // Guard: prevent writing to lunch fields for types where lunch is disabled
       const currentType = newRow.type;
       const isPartTimeEmp = getEmpTypeForDate(employee, dateStr) === 'Part time';
+      const isWkndDay = defIsWknd || currentType === 'Week Off';
       const lunchDisabledTypes = ['Part-Time', 'W-Day (1st Half)', 'W-Day (2nd Half)'];
       if (isPartTimeEmp && currentType === 'Holiday') {
         lunchDisabledTypes.push('Holiday');
       }
-      if (['lunchOut', 'lunchIn'].includes(field) && lunchDisabledTypes.includes(currentType)) {
-        newRow[field] = '';
+      if (['lunchOut', 'lunchIn'].includes(field) && (lunchDisabledTypes.includes(currentType) || isWkndDay)) {
+        newRow[field] = '00:00';
       }
       // Guard: prevent writing to AM fields for W-Day (2nd Half)
       if (['amIn', 'amOut'].includes(field) && currentType === 'W-Day (2nd Half)') {
@@ -1296,7 +1297,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
         errors.push("Both PM In and PM Out must be entered, or both left blank");
       }
       const isPartTimeEmp = getEmpTypeForDate(employee, row.date) === 'Part time';
-      if (!isPartTimeEmp) {
+      if (!isPartTimeEmp && !isWknd && type !== 'Week Off') {
         if ((lunchOut !== null && lunchIn === null) || (lunchOut === null && lunchIn !== null)) {
           errors.push("Both Lunch In and Lunch Out must be entered, or both left blank");
         }
@@ -1769,7 +1770,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
       const rMins = (calculateHours(r).rawMins || 0);
       const hasHours = rMins > 0;
       
-      if (rType === 'Holiday') {
+      if (rType === 'Holiday' || rType === 'Week Off' || isWknd) {
         return hasHours;
       }
       
@@ -1895,10 +1896,6 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const taskText = (taskDetailsText || '').trim();
     const shortText = (shortHoursReasonText || '').trim();
 
-    if (!taskText) {
-      setTaskDetailsError("Today's Task Details are required for submission.");
-      return;
-    }
     if (taskText.length > 320) {
       setTaskDetailsError("Today's Task Details cannot exceed 320 characters.");
       return;
@@ -1961,10 +1958,6 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
     const taskText = (taskDetailsText || '').trim();
     const shortText = (shortHoursReasonText || '').trim();
 
-    if (!taskText) {
-      setTaskDetailsError("Today's Task Details are required.");
-      return;
-    }
     if (taskText.length > 320) {
       setTaskDetailsError("Today's Task Details cannot exceed 320 characters.");
       return;
@@ -3090,8 +3083,10 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                     (row.pmOut || '') !== otAppliedPmOut
                   );
 
-                const isNoSubmitNeeded = row.type === 'Week Off';
-                const isWeekendOrHoliday = isWknd || row.type === 'Holiday';
+                const isNonZero = (v) => v && v.trim() !== '' && v.trim() !== '00:00';
+                const hasAnyTiming = isNonZero(row.amIn) || isNonZero(row.amOut) || isNonZero(row.pmIn) || isNonZero(row.pmOut);
+                const isNoSubmitNeeded = row.type === 'Week Off' && !hasAnyTiming;
+                const isWeekendOrHoliday = isWknd || row.type === 'Holiday' || row.type === 'Week Off';
                 const isWkType = ['Working Day', 'WFH', 'W-Day (1st Half)', 'W-Day (2nd Half)', 'Part-Time'].includes(row.type || (isWknd ? 'Week Off' : 'Working Day'));
                 
                 let hasAllFields = true;
@@ -3105,9 +3100,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                   const partialAm = (row.amIn && !row.amOut) || (!row.amIn && row.amOut);
                   const partialPm = (row.pmIn && !row.pmOut) || (!row.pmIn && row.pmOut);
                   hasAllFields = !!((hasAm || hasPm) && !partialAm && !partialPm);
-                } else if (isWkType) {
+                } else if (isWkType || isWeekendOrHoliday) {
                   if (isWeekendOrHoliday) {
-                    const isNonZero = (v) => v && v.trim() !== '' && v.trim() !== '00:00';
                     const hasAmIn = isNonZero(row.amIn);
                     const hasAmOut = isNonZero(row.amOut);
                     const hasLunchOut = isNonZero(row.lunchOut);
@@ -3177,8 +3171,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                       fieldDisabled = true;
                       fieldValue = '00:00';
                     }
-                  } else if (isPartTimeType) {
-                    // Part-Time: AM and PM editable; lunch disabled showing 00:00
+                  } else if (isPartTimeType || isWknd || row.type === 'Week Off') {
+                    // Part-Time and Weekend rows: AM and PM editable; lunch disabled showing 00:00
                     if (['lunchOut', 'lunchIn'].includes(field)) {
                       fieldDisabled = true;
                       fieldValue = '00:00';
@@ -4022,7 +4016,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
               <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
-                TODAY'S TASK DETAILS <span style={{ color: '#e11d48' }}>*</span>
+                TODAY'S TASK DETAILS
               </label>
               <textarea
                 className="form-input"
@@ -4033,7 +4027,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 value={taskDetailsText}
                 onChange={(e) => {
                   setTaskDetailsText(e.target.value.slice(0, 320));
-                  if (e.target.value.trim()) setTaskDetailsError('');
+                  if (e.target.value.trim() || !e.target.value) setTaskDetailsError('');
                 }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
@@ -4051,9 +4045,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             </div>
 
             {(() => {
-              const isTaskFilled = taskDetailsText && taskDetailsText.trim().length > 0;
               const isShortFilled = !taskDetailsModalData.isShortHoursNeeded || (shortHoursReasonText && shortHoursReasonText.trim().length > 0);
-              const isFormValid = isTaskFilled && isShortFilled;
+              const isFormValid = isShortFilled;
 
               return (
                 <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
@@ -4351,7 +4344,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
               <label className="form-label" style={{ fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '6px', color: '#334155' }}>
-                TODAY'S TASK DETAILS <span style={{ color: '#e11d48' }}>*</span>
+                TODAY'S TASK DETAILS
               </label>
               <textarea
                 className="form-input"
@@ -4363,7 +4356,7 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
                 disabled={shortHoursModalData.isReadOnly}
                 onChange={(e) => {
                   setTaskDetailsText(e.target.value.slice(0, 320));
-                  if (e.target.value.trim()) setTaskDetailsError('');
+                  if (e.target.value.trim() || !e.target.value) setTaskDetailsError('');
                 }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
@@ -4381,9 +4374,8 @@ export default function TimesheetGrid({ employee: initialEmployee, isAdmin, onBa
             </div>
 
             {(() => {
-              const isTaskFilled = taskDetailsText && taskDetailsText.trim().length > 0;
               const isShortFilled = shortHoursReasonText && shortHoursReasonText.trim().length > 0;
-              const isFormValid = isTaskFilled && isShortFilled;
+              const isFormValid = isShortFilled;
 
               return (
                 <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
